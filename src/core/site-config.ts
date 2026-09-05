@@ -7,6 +7,11 @@ import type { ContentStore } from './content-store.js';
 import { getDirectoryIndexCandidates } from './directory-index.js';
 import { parseMarkdownDocument } from './markdown.js';
 import type { MdoPlugin } from './extensions.js';
+import {
+  DEFAULT_SITE_LOCALE,
+  validateSiteMessages,
+  type SiteMessages,
+} from '../i18n/messages.js';
 
 export interface SiteNavItem {
   label: string;
@@ -85,6 +90,10 @@ export interface SiteSearchConfig {
 export interface SiteConfig {
   siteTitle?: string;
   siteDescription?: string;
+  /** Site UI locale (BCP 47) used for built-in chrome messages. Defaults to 'en'. */
+  locale?: string;
+  /** Flat overrides for built-in UI messages; keys are typed via SiteMessages. */
+  messages?: Partial<SiteMessages>;
   siteUrl?: string;
   favicon?: string;
   socialImage?: string;
@@ -111,6 +120,8 @@ export interface UserSiteConfig extends SiteConfig {
 export interface ResolvedSiteConfig {
   siteTitle: string;
   siteDescription?: string;
+  locale: string;
+  messages: Partial<SiteMessages>;
   siteUrl?: string;
   favicon?: string;
   socialImage?: string;
@@ -162,6 +173,7 @@ export async function loadUserSiteConfig(
 
   const parsedConfig = await loadConfigSource(configFilePath);
   const legacyConfig = parsedConfig as Record<string, unknown>;
+  const messageOverrides = resolveMessageOverrides(parsedConfig.messages, configFilePath);
 
   const stylesheetPath = parsedConfig.stylesheet
     ? path.resolve(path.dirname(configFilePath), parsedConfig.stylesheet)
@@ -180,6 +192,8 @@ export async function loadUserSiteConfig(
       parsedConfig.siteDescription !== ''
         ? parsedConfig.siteDescription
         : undefined,
+    locale: normalizeSiteLocale(parsedConfig.locale),
+    messages: messageOverrides,
     siteUrl: normalizeSiteUrl(parsedConfig.siteUrl),
     favicon: normalizeSiteHref(parsedConfig.favicon),
     socialImage: normalizeSiteHref(parsedConfig.socialImage),
@@ -260,6 +274,33 @@ export async function applySiteConfigFrontmatterDefaults(
   }
 
   return siteConfig;
+}
+
+function resolveMessageOverrides(
+  value: Partial<SiteMessages> | undefined,
+  configFilePath: string,
+): Partial<SiteMessages> {
+  if (value === undefined) {
+    return {};
+  }
+
+  const { messages, unknownKeys } = validateSiteMessages(value);
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `[mdorigin] ${configFilePath}: "messages" contains unknown keys: ${unknownKeys.join(', ')}`,
+    );
+  }
+
+  return messages;
+}
+
+function normalizeSiteLocale(value: unknown): string {
+  if (typeof value !== 'string') {
+    return DEFAULT_SITE_LOCALE;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === '' ? DEFAULT_SITE_LOCALE : trimmed;
 }
 
 async function resolveDefaultConfigPath(

@@ -312,6 +312,60 @@ test('loadSiteConfig normalizes search profile settings', async () => {
   });
 });
 
+test('loadSiteConfig defaults locale to en and resolves message overrides', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locale-'));
+  await writeFile(
+    path.join(rootDir, 'mdorigin.config.json'),
+    JSON.stringify(
+      {
+        siteTitle: 'Locale Site',
+        messages: {
+          'search.toggle': 'Zoeken',
+          'listing.emptyDirectory': 'Deze map is leeg.',
+        },
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  const config = await loadSiteConfig({ rootDir });
+
+  assert.equal(config.locale, 'en');
+  assert.deepEqual(config.messages, {
+    'search.toggle': 'Zoeken',
+    'listing.emptyDirectory': 'Deze map is leeg.',
+  });
+});
+
+test('loadSiteConfig keeps an explicitly configured locale', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locale-zh-'));
+  await writeFile(
+    path.join(rootDir, 'mdorigin.config.json'),
+    JSON.stringify({ siteTitle: 'Locale Site', locale: 'zh-CN' }, null, 2),
+    'utf8',
+  );
+
+  const config = await loadSiteConfig({ rootDir });
+
+  assert.equal(config.locale, 'zh-CN');
+  assert.deepEqual(config.messages, {});
+});
+
+test('loadSiteConfig rejects unknown message keys', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-messages-invalid-'));
+  await writeFile(
+    path.join(rootDir, 'mdorigin.config.json'),
+    JSON.stringify({ messages: { 'search.togle': 'typo' } }, null, 2),
+    'utf8',
+  );
+
+  await assert.rejects(
+    loadSiteConfig({ rootDir }),
+    /"messages" contains unknown keys: search\.togle/,
+  );
+});
 test('loadSiteConfig rejects removed search.hybrid setting', async () => {
   const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-search-legacy-'));
   await writeFile(

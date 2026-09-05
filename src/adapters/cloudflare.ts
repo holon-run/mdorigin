@@ -161,6 +161,8 @@ export function createCloudflareWorker(
         siteConfig: manifest.siteConfig ?? {
           siteTitle: 'mdorigin',
           siteUrl: undefined,
+          locale: 'en',
+          messages: {},
           favicon: undefined,
           logo: undefined,
           showDate: true,

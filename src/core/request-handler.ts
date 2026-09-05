@@ -37,6 +37,10 @@ import {
   renderListingArticleItems,
   renderDocument,
 } from '../html/template.js';
+import {
+  formatSiteMessage,
+  resolveSiteMessages,
+} from '../i18n/messages.js';
 import type { SearchApi } from '../search.js';
 
 export interface HandleSiteRequestOptions {
@@ -328,6 +332,8 @@ async function renderStructuredPage(options: {
   plugins: MdoPlugin[];
   varyOnAccept?: boolean;
 }): Promise<SiteResponse> {
+  const locale = options.siteConfig.locale;
+  const messages = resolveSiteMessages(locale, options.siteConfig.messages);
   const page = buildPageRenderModel({
     resolvedRequestPath: options.requestPath,
     sourcePath: options.sourcePath,
@@ -356,6 +362,8 @@ async function renderStructuredPage(options: {
       return renderDocument({
         siteTitle: currentPage.siteTitle,
         siteDescription: currentPage.siteDescription,
+        locale,
+        messages,
         siteUrl: currentPage.siteUrl,
         favicon: currentPage.favicon,
         socialImage: currentPage.socialImage,
@@ -496,9 +504,13 @@ async function renderHtmlNotFound(
   varyOnAccept: boolean,
 ): Promise<SiteResponse> {
   const navigation = await resolveTopNav(store, options.siteConfig);
+  const locale = options.siteConfig.locale;
+  const messages = resolveSiteMessages(locale, options.siteConfig.messages);
   const body = [
-    '<h1>Not Found</h1>',
-    `<p>No page was published at <code>${escapeHtml(requestPath)}</code>.</p>`,
+    `<h1>${escapeHtml(messages['error.notFoundTitle'])}</h1>`,
+    `<p>${formatSiteMessage(messages['error.notFoundBody'], {
+      path: escapeHtml(requestPath),
+    })}</p>`,
   ].join('');
 
   return {
@@ -516,8 +528,10 @@ async function renderHtmlNotFound(
       favicon: options.siteConfig.favicon,
       socialImage: options.siteConfig.socialImage,
       logo: options.siteConfig.logo,
-      title: 'Not Found',
+      title: messages['error.notFoundTitle'],
       body,
+      locale,
+      messages,
       showSummary: false,
       showDate: false,
       topNav: navigation.items,
@@ -877,13 +891,17 @@ async function renderDirectoryListing(
 
   const visibleEntries = entries.filter(isVisibleDirectoryEntry);
   const navigation = await resolveTopNav(store, siteConfig);
+  const locale = siteConfig.locale;
+  const messages = resolveSiteMessages(locale, siteConfig.messages);
   const listItems = visibleEntries
     .map((entry) => `<li><a href="${getDirectoryEntryHref(requestPath, entry)}">${escapeHtml(getDirectoryEntryLabel(entry))}</a></li>`)
     .join('');
 
   const body = [
     `<h1>${escapeHtml(getDirectoryTitle(requestPath))}</h1>`,
-    visibleEntries.length > 0 ? `<ul>${listItems}</ul>` : '<p>This directory is empty.</p>',
+    visibleEntries.length > 0
+      ? `<ul>${listItems}</ul>`
+      : `<p>${escapeHtml(messages['listing.emptyDirectory'])}</p>`,
   ].join('');
 
   return {
@@ -894,6 +912,8 @@ async function renderDirectoryListing(
     body: renderDocument({
       siteTitle: siteConfig.siteTitle,
       siteDescription: siteConfig.siteDescription,
+      locale,
+      messages,
       siteUrl: siteConfig.siteUrl,
       favicon: siteConfig.favicon,
       logo: siteConfig.logo,

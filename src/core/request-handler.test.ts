@@ -1483,3 +1483,74 @@ test('handleSiteRequest paginates post directory bundles in default listing layo
   assert.equal(payload.hasMore, false);
   assert.equal(payload.nextOffset, 2);
 });
+
+test('handleSiteRequest renders built-in chrome with the configured locale', async () => {
+  const store = new MemoryContentStore([
+    {
+      path: 'topic/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: ['# Topic', '', 'Hello.', ''].join('\n'),
+    },
+    {
+      path: 'empty-dir/.gitkeep',
+      kind: 'text',
+      mediaType: 'text/plain; charset=utf-8',
+      text: '',
+    },
+  ]);
+  const searchApi = {
+    search: async () => [],
+  };
+
+  const pageResponse = await handleSiteRequest(store, '/topic/', {
+    draftMode: 'exclude',
+    siteConfig: { ...TEST_SITE_CONFIG, locale: 'zh-CN' },
+    searchApi,
+  });
+
+  assert.equal(pageResponse.status, 200);
+  const pageBody = String(pageResponse.body);
+  assert.match(pageBody, /<html lang="zh-CN">/);
+  assert.match(pageBody, /class="site-search__toggle"[^>]*>搜索</);
+  assert.match(pageBody, /placeholder="搜索文档与技能"/);
+  assert.match(pageBody, /aria-label="查看 Markdown 源文件"/);
+  assert.match(pageBody, />MD 视图</);
+  assert.doesNotMatch(pageBody, />Search</);
+  assert.match(pageBody, /const M = \{"resultsEmpty":"没有找到结果。"/);
+
+  const notFoundResponse = await handleSiteRequest(store, '/missing', {
+    draftMode: 'exclude',
+    siteConfig: { ...TEST_SITE_CONFIG, locale: 'zh-CN' },
+    searchApi,
+  });
+
+  assert.equal(notFoundResponse.status, 404);
+  const notFoundBody = String(notFoundResponse.body);
+  assert.match(notFoundBody, /<html lang="zh-CN">/);
+  assert.match(notFoundBody, /<h1>未找到<\/h1>/);
+  assert.match(notFoundBody, /没有页面发布在 <code>\/missing<\/code>/);
+  assert.match(notFoundBody, /<title>未找到 \| Test Site<\/title>/);
+});
+
+test('handleSiteRequest applies user message overrides and unknown locales fall back to english', async () => {
+  const store = new MemoryContentStore([]);
+
+  const overridden = await handleSiteRequest(store, '/missing', {
+    draftMode: 'exclude',
+    siteConfig: {
+      ...TEST_SITE_CONFIG,
+      locale: 'en',
+      messages: { 'error.notFoundTitle': 'Oops' },
+    },
+  });
+  assert.match(String(overridden.body), /<h1>Oops<\/h1>/);
+  assert.match(String(overridden.body), /No page was published at/);
+
+  const unknownLocale = await handleSiteRequest(store, '/missing', {
+    draftMode: 'exclude',
+    siteConfig: { ...TEST_SITE_CONFIG, locale: 'xx-YY' },
+  });
+  assert.match(String(unknownLocale.body), /<html lang="xx-YY">/);
+  assert.match(String(unknownLocale.body), /<h1>Not Found<\/h1>/);
+});

@@ -4,11 +4,19 @@ import type {
   SiteSocialLink,
 } from '../core/site-config.js';
 import type { ManagedIndexEntry } from '../core/markdown.js';
+import {
+  DEFAULT_SITE_LOCALE,
+  resolveSiteMessages,
+  serializeMessagesForScript,
+  type SiteMessages,
+} from '../i18n/messages.js';
 import { getDefaultThemeStyles } from './theme.js';
 
 export interface RenderDocumentOptions {
   siteTitle: string;
   siteDescription?: string;
+  locale?: string;
+  messages?: SiteMessages;
   siteUrl?: string;
   favicon?: string;
   socialImage?: string;
@@ -38,6 +46,8 @@ export interface RenderDocumentOptions {
 }
 
 export function renderDocument(options: RenderDocumentOptions) {
+  const locale = options.locale ?? DEFAULT_SITE_LOCALE;
+  const messages = options.messages ?? resolveSiteMessages(locale);
   const title = escapeHtml(options.title);
   const siteTitle = escapeHtml(options.siteTitle);
   const siteDescription = options.siteDescription
@@ -88,15 +98,15 @@ export function renderDocument(options: RenderDocumentOptions) {
   const searchToggleBlock = options.searchEnabled
     ? [
         '<div class="site-search" data-site-search>',
-        '<button type="button" class="site-search__toggle" aria-expanded="false" aria-controls="site-search-panel">Search</button>',
+        `<button type="button" class="site-search__toggle" aria-expanded="false" aria-controls="site-search-panel">${escapeHtml(messages['search.toggle'])}</button>`,
         '<div id="site-search-panel" class="site-search__panel" hidden>',
         '<form class="site-search__form" role="search" action="/api/search" method="get">',
-        '<label class="site-search__label" for="site-search-input">Search site</label>',
+        `<label class="site-search__label" for="site-search-input">${escapeHtml(messages['search.label'])}</label>`,
         '<div class="site-search__controls">',
-        '<input id="site-search-input" class="site-search__input" type="search" name="q" placeholder="Search docs and skills" autocomplete="off">',
-        '<button type="submit" class="site-search__submit">Go</button>',
+        `<input id="site-search-input" class="site-search__input" type="search" name="q" placeholder="${escapeHtml(messages['search.placeholder'])}" autocomplete="off">`,
+        `<button type="submit" class="site-search__submit">${escapeHtml(messages['search.go'])}</button>`,
         '</div>',
-        '<p class="site-search__hint">Search is powered by <code>/api/search</code>.</p>',
+        `<p class="site-search__hint">${messages['search.hint']}</p>`,
         '</form>',
         '<div class="site-search__results" data-site-search-results></div>',
         '</div>',
@@ -131,10 +141,10 @@ export function renderDocument(options: RenderDocumentOptions) {
     : '';
   const brandHref = escapeHtml(options.logo?.href ?? '/');
   const editLinkBlock = options.editLinkHref
-    ? `<a class="site-footer__edit-link" href="${escapeHtml(options.editLinkHref)}">Edit this page</a>`
+    ? `<a class="site-footer__edit-link" href="${escapeHtml(options.editLinkHref)}">${escapeHtml(messages['footer.editPage'])}</a>`
     : '';
   const markdownViewBlock = options.alternateMarkdownPath
-    ? `<a class="site-footer__markdown-link" href="${escapeHtml(options.alternateMarkdownPath)}" aria-label="View Markdown source">MD View</a>`
+    ? `<a class="site-footer__markdown-link" href="${escapeHtml(options.alternateMarkdownPath)}" aria-label="${escapeHtml(messages['footer.markdownViewAria'])}">${escapeHtml(messages['footer.markdownView'])}</a>`
     : '';
   const footerActionsBlock =
     markdownViewBlock || editLinkBlock
@@ -161,9 +171,10 @@ export function renderDocument(options: RenderDocumentOptions) {
             initialPostCount: options.listingInitialPostCount ?? 10,
             loadMoreStep: options.listingLoadMoreStep ?? 10,
           },
+          messages,
         )
       : options.body;
-  const searchScript = options.searchEnabled ? renderSearchScript() : '';
+  const searchScript = options.searchEnabled ? renderSearchScript(messages) : '';
 
   const headerBlock =
     options.headerHtml ??
@@ -172,7 +183,7 @@ export function renderDocument(options: RenderDocumentOptions) {
 
   return [
     '<!doctype html>',
-    '<html lang="en">',
+    `<html lang="${escapeHtml(locale)}">`,
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -261,6 +272,7 @@ function renderListingArticle(
     initialPostCount: number;
     loadMoreStep: number;
   },
+  messages: SiteMessages,
 ): string {
   if (entries.length === 0) {
     return body;
@@ -274,22 +286,25 @@ function renderListingArticle(
 
   return [
     `<div class="catalog-page__body">${body}</div>`,
-    '<section class="catalog-page" aria-label="Content listing">',
-    directories.length > 0 ? renderListingDirectories(directories) : '',
+    `<section class="catalog-page" aria-label="${escapeHtml(messages['listing.ariaLabel'])}">`,
+    directories.length > 0 ? renderListingDirectories(directories, messages) : '',
     articles.length > 0
       ? renderListingArticles(visibleArticles, {
           requestPath: options.requestPath,
           nextOffset: visibleArticles.length,
           loadMoreStep: options.loadMoreStep,
           hasMore: shouldLoadMore,
-        })
+        }, messages)
       : '',
     '</section>',
-    shouldLoadMore ? renderListingLoadMoreScript() : '',
+    shouldLoadMore ? renderListingLoadMoreScript(messages) : '',
   ].join('');
 }
 
-function renderListingDirectories(entries: ManagedIndexEntry[]): string {
+function renderListingDirectories(
+  entries: ManagedIndexEntry[],
+  messages: SiteMessages,
+): string {
   return [
     '<div class="catalog-list catalog-list--directories">',
     ...entries.map(
@@ -297,7 +312,7 @@ function renderListingDirectories(entries: ManagedIndexEntry[]): string {
         `<a class="catalog-item catalog-item--directory" href="${escapeHtml(entry.href)}"><strong class="catalog-item__title">${escapeHtml(entry.title)}</strong>${
           entry.detail
             ? `<span class="catalog-item__detail">${escapeHtml(entry.detail)}</span>`
-            : '<span class="catalog-item__detail">Browse this section.</span>'
+            : `<span class="catalog-item__detail">${escapeHtml(messages['listing.browseSection'])}</span>`
         }</a>`,
     ),
     '</div>',
@@ -325,6 +340,7 @@ function renderListingArticles(
     loadMoreStep: number;
     hasMore: boolean;
   },
+  messages: SiteMessages,
 ): string {
   return [
     '<div class="catalog-list" data-listing-articles>',
@@ -335,12 +351,12 @@ function renderListingArticles(
           options.requestPath,
         )}" data-next-offset="${escapeHtml(String(options.nextOffset))}" data-load-more-step="${escapeHtml(
           String(options.loadMoreStep),
-        )}">Load more</button></div>`
+        )}">${escapeHtml(messages['listing.loadMore'])}</button></div>`
       : '',
   ].join('');
 }
 
-function renderListingLoadMoreScript(): string {
+function renderListingLoadMoreScript(messages: SiteMessages): string {
   return `<script>
 (() => {
   const button = document.querySelector('[data-listing-load-more]');
@@ -348,6 +364,11 @@ function renderListingLoadMoreScript(): string {
   if (!(button instanceof HTMLButtonElement) || !(list instanceof HTMLElement)) {
     return;
   }
+
+  const M = ${serializeMessagesForScript({
+    loadMore: messages['listing.loadMore'],
+    loading: messages['listing.loading'],
+  })};
 
   const loadMore = async () => {
     const requestPath = button.dataset.requestPath;
@@ -359,7 +380,7 @@ function renderListingLoadMoreScript(): string {
 
     button.disabled = true;
     const previousLabel = button.textContent;
-    button.textContent = 'Loading...';
+    button.textContent = M.loading;
 
     try {
       const url = new URL(requestPath, window.location.origin);
@@ -382,14 +403,14 @@ function renderListingLoadMoreScript(): string {
       if (payload.hasMore === true && typeof payload.nextOffset === 'number') {
         button.dataset.nextOffset = String(payload.nextOffset);
         button.disabled = false;
-        button.textContent = previousLabel ?? 'Load more';
+        button.textContent = previousLabel ?? M.loadMore;
         return;
       }
 
       button.remove();
     } catch {
       button.disabled = false;
-      button.textContent = previousLabel ?? 'Load more';
+      button.textContent = previousLabel ?? M.loadMore;
     }
   };
 
@@ -400,7 +421,7 @@ function renderListingLoadMoreScript(): string {
 </script>`;
 }
 
-function renderSearchScript(): string {
+function renderSearchScript(messages: SiteMessages): string {
   return [
     '<script>',
     '(function () {',
@@ -412,18 +433,27 @@ function renderSearchScript(): string {
     '  const input = root.querySelector(".site-search__input");',
     '  const results = root.querySelector("[data-site-search-results]");',
     '  if (!toggle || !panel || !form || !input || !results) return;',
+    `  const M = ${serializeMessagesForScript({
+      resultsEmpty: messages['search.resultsEmpty'],
+      searching: messages['search.searching'],
+      failed: messages['search.failed'],
+      failedWithStatus: messages['search.failedWithStatus'],
+      enterQuery: messages['search.enterQuery'],
+      initialHint: messages['search.initialHint'],
+      untitled: messages['search.untitled'],
+    })};`,
     '  let controller = null;',
     '  function renderMessage(message) {',
     '    results.innerHTML = `<p class="site-search__message">${escapeHtmlForScript(message)}</p>`;',
     '  }',
     '  function renderHits(hits) {',
     '    if (!Array.isArray(hits) || hits.length === 0) {',
-    '      renderMessage("No results.");',
+    '      renderMessage(M.resultsEmpty);',
     '      return;',
     '    }',
     '    results.innerHTML = hits.map((hit) => {',
     '      const href = escapeHtmlForScript(hit.canonicalUrl || hit.docId || "#");',
-    '      const title = escapeHtmlForScript(hit.title || hit.relativePath || "Untitled");',
+    '      const title = escapeHtmlForScript(hit.title || hit.relativePath || M.untitled);',
     '      const summary = typeof hit.summary === "string" ? `<span class="site-search__item-summary">${escapeHtmlForScript(hit.summary)}</span>` : "";',
     '      const excerpt = hit.bestMatch && typeof hit.bestMatch.excerpt === "string" ? `<span class="site-search__item-excerpt">${escapeHtmlForScript(hit.bestMatch.excerpt)}</span>` : "";',
     '      return `<a class="site-search__item" href="${href}"><strong class="site-search__item-title">${title}</strong>${summary}${excerpt}</a>`;',
@@ -432,21 +462,21 @@ function renderSearchScript(): string {
     '  async function runSearch(query) {',
     '    if (controller) controller.abort();',
     '    controller = new AbortController();',
-    '    renderMessage("Searching...");',
+    '    renderMessage(M.searching);',
     '    try {',
     '      const url = new URL("/api/search", window.location.origin);',
     '      url.searchParams.set("q", query);',
     '      url.searchParams.set("topK", "8");',
     '      const response = await fetch(url, { signal: controller.signal });',
     '      if (!response.ok) {',
-    '        renderMessage(`Search failed (${response.status}).`);',
+    '        renderMessage(M.failedWithStatus.replaceAll("{status}", String(response.status)));',
     '        return;',
     '      }',
     '      const payload = await response.json();',
     '      renderHits(payload.hits);',
     '    } catch (error) {',
     '      if (error && typeof error === "object" && "name" in error && error.name === "AbortError") return;',
-    '      renderMessage("Search failed.");',
+    '      renderMessage(M.failed);',
     '    }',
     '  }',
     '  function setOpen(open) {',
@@ -454,7 +484,7 @@ function renderSearchScript(): string {
     '    panel.hidden = !open;',
     '    if (open) {',
     '      input.focus();',
-    '      if (!results.innerHTML) renderMessage("Search docs, guides, and skills.");',
+    '      if (!results.innerHTML) renderMessage(M.initialHint);',
     '    }',
     '  }',
     '  toggle.addEventListener("click", () => setOpen(panel.hidden));',
@@ -462,7 +492,7 @@ function renderSearchScript(): string {
     '    event.preventDefault();',
     '    const query = input.value.trim();',
     '    if (!query) {',
-    '      renderMessage("Enter a search query.");',
+    '      renderMessage(M.enterQuery);',
     '      return;',
     '    }',
     '    void runSearch(query);',
