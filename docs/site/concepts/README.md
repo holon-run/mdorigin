@@ -14,8 +14,10 @@ These pages explain the content model and the behavior of the engine.
 
 - [Routing Model](./routing.md)
   2026-03-20 · Understand how markdown, HTML, directory routes, and assets map to URLs.
+  <!-- mdorigin:index kind=article -->
 
 - [Directory Indexes](./directory-indexes.md)
   2026-03-20 · Generate and maintain directory index blocks inside index.md or README.md.
+  <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

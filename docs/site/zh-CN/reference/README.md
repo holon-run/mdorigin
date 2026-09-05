@@ -14,8 +14,10 @@ summary: mdorigin 的配置与命令参考。
 
 - [配置](./configuration.md)
   2026-03-20 · 站点级配置字段及其行为。
+  <!-- mdorigin:index kind=article -->
 
 - [CLI](./cli.md)
   2026-03-20 · 本地预览、索引生成与 Cloudflare 包的命令行入口。
+  <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

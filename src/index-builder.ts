@@ -42,6 +42,8 @@ export interface BuildIndexOptions {
   rootDir?: string;
   dir?: string;
   plugins?: MdoPlugin[];
+  /** Top-level directory names (locale content bases) kept out of managed indexes. */
+  excludedDirectories?: string[];
 }
 
 export interface BuildIndexResult {
@@ -65,6 +67,7 @@ export async function buildDirectoryIndexes(
     const updatedFile = await updateSingleDirectoryIndex(directoryPath, {
       createIfMissing: false,
       plugins: options.plugins ?? [],
+      excludedDirectories: options.excludedDirectories,
     });
     return {
       updatedFiles: updatedFile ? [updatedFile] : [],
@@ -81,6 +84,7 @@ export async function buildDirectoryIndexes(
     const updatedFile = await updateSingleDirectoryIndex(directoryPath, {
       createIfMissing: false,
       plugins: options.plugins ?? [],
+      excludedDirectories: options.excludedDirectories,
     });
     if (updatedFile) {
       updatedFiles.push(updatedFile);
@@ -96,6 +100,7 @@ export async function buildDirectoryIndexes(
 interface UpdateSingleDirectoryIndexOptions {
   createIfMissing: boolean;
   plugins: MdoPlugin[];
+  excludedDirectories?: string[];
 }
 
 async function updateSingleDirectoryIndex(
@@ -120,7 +125,11 @@ async function updateSingleDirectoryIndex(
   const existingContent = indexFilePath
     ? await readFile(indexFilePath, 'utf8')
     : '';
-  const block = await buildManagedIndexBlock(directoryPath, options.plugins);
+  const block = await buildManagedIndexBlock(
+    directoryPath,
+    options.plugins,
+    options.excludedDirectories,
+  );
   const nextContent = upsertManagedIndexBlock(existingContent, block, {
     directoryPath,
   });
@@ -135,10 +144,12 @@ async function updateSingleDirectoryIndex(
 export async function buildManagedIndexBlock(
   directoryPath: string,
   plugins: MdoPlugin[] = [],
+  excludedDirectories?: string[],
 ): Promise<string> {
   const entries = await readdir(directoryPath, { withFileTypes: true });
   const directories: DirectoryIndexEntry[] = [];
   const articles: ArticleIndexEntry[] = [];
+  const excluded = new Set(excludedDirectories ?? []);
 
   for (const entry of entries) {
     if (isIgnoredContentName(entry.name)) {
@@ -148,6 +159,9 @@ export async function buildManagedIndexBlock(
     const fullPath = path.join(directoryPath, entry.name);
     const entryStats = await stat(fullPath);
     if (entryStats.isDirectory()) {
+      if (excluded.has(entry.name)) {
+        continue;
+      }
       if (!(await hasMeaningfulDirectoryContent(fullPath))) {
         continue;
       }

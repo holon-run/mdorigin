@@ -343,3 +343,17 @@ test('buildDirectoryIndexes follows symlinked skill directories', async () => {
     !result.updatedFiles.some((entry) => entry.endsWith('/skills/find-skills/scripts/README.md')),
   );
 });
+
+test('buildManagedIndexBlock excludes configured locale directories', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-index-locale-exclude-'));
+  await writeFile(path.join(rootDir, 'README.md'), '# Home\n', 'utf8');
+  await mkdir(path.join(rootDir, 'guides'));
+  await writeFile(path.join(rootDir, 'guides', 'README.md'), '# Guides\n', 'utf8');
+  await mkdir(path.join(rootDir, 'zh-CN'));
+  await writeFile(path.join(rootDir, 'zh-CN', 'README.md'), '# 首页\n', 'utf8');
+
+  const block = await buildManagedIndexBlock(rootDir, [], ['zh-CN']);
+
+  assert.match(block, /\[Guides\]\(\.\/guides\/\)/);
+  assert.doesNotMatch(block, /zh-CN/);
+});

@@ -16,5 +16,6 @@ This directory is linked into the site root through a filesystem symlink, so the
 
 - [mdorigin](./mdorigin/)
   Build, preview, and deploy markdown-first sites with local preview, Cloudflare bundles, and agent-readable raw markdown routes.
+  <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

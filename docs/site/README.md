@@ -46,14 +46,19 @@ The top navigation and section indexes cover the rest of the documentation.
 <!-- INDEX:START -->
 
 - [Guides](./guides/)
+  <!-- mdorigin:index kind=directory -->
 
 - [Skills](./skills/)
+  <!-- mdorigin:index kind=directory -->
 
 - [Concepts](./concepts/)
+  <!-- mdorigin:index kind=directory -->
 
 - [Reference](./reference/)
+  <!-- mdorigin:index kind=directory -->
 
 - [Why mdorigin exists](./why-mdorigin.md)
   2026-03-20 · A concise explanation of the markdown-first model and why the project avoids runtime-only content layers.
+  <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

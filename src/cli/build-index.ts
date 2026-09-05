@@ -31,6 +31,9 @@ export async function runBuildIndexCommand(argv: string[]) {
     rootDir,
     dir,
     plugins: loadedConfig.plugins,
+    excludedDirectories: (loadedConfig.siteConfig.locales ?? [])
+      .filter((locale) => locale.contentBase !== '')
+      .map((locale) => locale.contentBase),
   });
 
   console.log(`updated ${result.updatedFiles.length} index file(s)`);

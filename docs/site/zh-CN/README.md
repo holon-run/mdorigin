@@ -46,12 +46,16 @@ summary: Markdown 优先的发布引擎，同时服务人类可读的 HTML 与�
 <!-- INDEX:START -->
 
 - [指南](./guides/)
+  <!-- mdorigin:index kind=directory -->
 
 - [概念](./concepts/)
+  <!-- mdorigin:index kind=directory -->
 
 - [参考](./reference/)
+  <!-- mdorigin:index kind=directory -->
 
 - [为什么会有 mdorigin](./why-mdorigin.md)
   2026-03-20 · 简明解释 markdown 优先模型，以及本项目为什么避免纯运行时内容层。
+  <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

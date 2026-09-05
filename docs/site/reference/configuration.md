@@ -148,7 +148,7 @@ With the config above:
 - missing translations return 404 instead of falling back to another language
 - `/feed.xml` serves the default locale; each additional locale gets `/{code}/feed.xml`
 - search results are filtered client-side to the current locale's content
-- locale directories are excluded from auto-derived top navigation
+- locale directories are excluded from auto-derived top navigation and from `mdorigin build index` managed blocks
 
 Per-locale fields:
 

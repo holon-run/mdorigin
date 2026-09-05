@@ -14,8 +14,10 @@ Use this section as a compact lookup for configuration and commands.
 
 - [Configuration](./configuration.md)
   2026-03-20 · Site-level configuration fields and their behavior.
+  <!-- mdorigin:index kind=article -->
 
 - [CLI](./cli.md)
   2026-03-20 · Command-line entrypoints for local preview, index generation, and Cloudflare bundles.
+  <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

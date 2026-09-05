@@ -148,7 +148,7 @@ function escapeHtml(value: string): string {
 - 译文缺失返回 404，不回退到其他语言
 - `/feed.xml` 只包含默认语言；其他语言各有 `/{code}/feed.xml`
 - 搜索结果在客户端按当前语言过滤
-- 语言目录不出现在自动推导的顶部导航中
+- 语言目录不出现在自动推导的顶部导航与 `mdorigin build index` 受管索引块中
 
 各语言字段：
 
