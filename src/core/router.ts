@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { normalizeContentPath } from './content-store.js';
+import type { ResolvedLocaleConfig } from './site-config.js';
 
 export type ResolvedRequestKind = 'markdown' | 'html' | 'asset' | 'not-found';
 
@@ -102,4 +103,40 @@ export function normalizeRequestPath(pathname: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Attributes a request path to a configured content locale. Locale URL
+ * prefixes map 1:1 to top-level `{code}` content directories, so attribution
+ * never rewrites content resolution: a path that matches a locale prefix keeps
+ * resolving to that locale's directory, and any other path belongs to the
+ * default locale (whose content lives at the content root when unprefixed).
+ */
+export function matchRequestLocale(
+  pathname: string,
+  locales: readonly ResolvedLocaleConfig[] | undefined,
+): ResolvedLocaleConfig | null {
+  if (locales === undefined || locales.length === 0) {
+    return null;
+  }
+
+  const normalized = normalizeRequestPath(pathname);
+  if (normalized === null) {
+    return null;
+  }
+
+  const prefixed = locales
+    .filter((locale) => locale.pathPrefix !== '')
+    .sort((left, right) => right.pathPrefix.length - left.pathPrefix.length);
+
+  for (const locale of prefixed) {
+    if (
+      normalized === locale.pathPrefix ||
+      normalized.startsWith(`${locale.pathPrefix}/`)
+    ) {
+      return locale;
+    }
+  }
+
+  return locales.find((locale) => locale.isDefault) ?? null;
 }

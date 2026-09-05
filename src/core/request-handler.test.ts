@@ -1554,3 +1554,258 @@ test('handleSiteRequest applies user message overrides and unknown locales fall 
   assert.match(String(unknownLocale.body), /<html lang="xx-YY">/);
   assert.match(String(unknownLocale.body), /<h1>Not Found<\/h1>/);
 });
+
+const MULTI_LOCALE_SITE_CONFIG = {
+  ...TEST_SITE_CONFIG,
+  siteUrl: 'https://example.com',
+  locales: [
+    {
+      code: 'en',
+      label: 'English',
+      pathPrefix: '',
+      isDefault: true,
+      contentBase: '',
+      messages: {},
+    },
+    {
+      code: 'zh-CN',
+      label: '中文',
+      pathPrefix: '/zh-CN',
+      isDefault: false,
+      contentBase: 'zh-CN',
+      messages: {},
+    },
+  ],
+};
+
+function createMultiLocaleStore() {
+  return new MemoryContentStore([
+    {
+      path: 'index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: Home\n---\n\nEnglish home.\n',
+    },
+    {
+      path: 'docs/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: Docs\norder: 1\n---\n\nEnglish docs.\n',
+    },
+    {
+      path: 'hello.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: English Post\ndate: 2024-05-01\n---\n\nEnglish post body.\n',
+    },
+    {
+      path: 'about.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: About\n---\n\nAbout this site.\n',
+    },
+    {
+      path: 'zh-CN/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: 首页\n---\n\n中文首页。\n',
+    },
+    {
+      path: 'zh-CN/docs/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: 文档\norder: 1\n---\n\n中文文档。\n',
+    },
+    {
+      path: 'zh-CN/hello.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: 中文文章\ndate: 2024-05-02\n---\n\n中文文章正文。\n',
+    },
+  ]);
+}
+
+test('matchRequestLocale attributes paths to configured locales', async () => {
+  const { matchRequestLocale } = await import('./router.js');
+  const locales = MULTI_LOCALE_SITE_CONFIG.locales;
+
+  assert.equal(matchRequestLocale('/zh-CN/docs/', locales)?.code, 'zh-CN');
+  assert.equal(matchRequestLocale('/zh-CN', locales)?.code, 'zh-CN');
+  assert.equal(matchRequestLocale('/docs/', locales)?.code, 'en');
+  assert.equal(matchRequestLocale('/', locales)?.code, 'en');
+  assert.equal(matchRequestLocale('/zh-CNx/', locales)?.code, 'en');
+  assert.equal(matchRequestLocale('/zh-CN/', undefined), null);
+});
+
+test('handleSiteRequest renders locale pages with language chrome', async () => {
+  const store = createMultiLocaleStore();
+  const searchApi = { search: async () => [] };
+
+  const zhResponse = await handleSiteRequest(store, '/zh-CN/docs/', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+    searchApi,
+  });
+
+  assert.equal(zhResponse.status, 200);
+  const zhBody = String(zhResponse.body);
+  assert.match(zhBody, /<html lang="zh-CN">/);
+  assert.match(zhBody, /中文文档。/);
+  assert.match(zhBody, /class="site-search__toggle"[^>]*>搜索</);
+  assert.match(
+    zhBody,
+    /<a href="\/docs\/" hreflang="en">English<\/a>/,
+  );
+  assert.match(
+    zhBody,
+    /<a href="\/zh-CN\/docs\/" hreflang="zh-CN" aria-current="page">中文<\/a>/,
+  );
+  assert.match(
+    zhBody,
+    /<link rel="alternate" hreflang="en" href="https:\/\/example\.com\/docs\/">/,
+  );
+  assert.match(
+    zhBody,
+    /<link rel="alternate" hreflang="zh-CN" href="https:\/\/example\.com\/zh-CN\/docs\/">/,
+  );
+  assert.match(
+    zhBody,
+    /<link rel="alternate" hreflang="x-default" href="https:\/\/example\.com\/docs\/">/,
+  );
+  assert.match(zhBody, /<link rel="canonical" href="https:\/\/example\.com\/zh-CN\/docs\/">/);
+  assert.match(zhBody, /"include":"zh-CN\/","exclude":\[\]/);
+
+  const enResponse = await handleSiteRequest(store, '/docs/', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+    searchApi,
+  });
+
+  assert.equal(enResponse.status, 200);
+  const enBody = String(enResponse.body);
+  assert.match(enBody, /<html lang="en">/);
+  assert.match(enBody, /<a href="\/zh-CN\/docs\/" hreflang="zh-CN">中文<\/a>/);
+  assert.match(enBody, /"include":"","exclude":\["zh-CN\/"\]/);
+});
+
+test('handleSiteRequest keeps untranslated locale pages out of the switcher', async () => {
+  const store = createMultiLocaleStore();
+  const searchApi = { search: async () => [] };
+
+  const response = await handleSiteRequest(store, '/about', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+    searchApi,
+  });
+
+  assert.equal(response.status, 200);
+  const body = String(response.body);
+  assert.match(body, /<a href="\/about" hreflang="en" aria-current="page">English<\/a>/);
+  assert.match(body, /<a href="\/zh-CN\/" hreflang="zh-CN">中文<\/a>/);
+  assert.doesNotMatch(body, /hreflang="zh-CN" href="https:\/\/example\.com\/zh-CN\/about"/);
+});
+
+test('handleSiteRequest renders locale-aware 404 pages', async () => {
+  const store = createMultiLocaleStore();
+
+  const response = await handleSiteRequest(store, '/zh-CN/missing', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+  });
+
+  assert.equal(response.status, 404);
+  const body = String(response.body);
+  assert.match(body, /<html lang="zh-CN">/);
+  assert.match(body, /<h1>未找到<\/h1>/);
+  assert.match(body, /没有页面发布在 <code>\/zh-CN\/missing<\/code>/);
+});
+
+test('handleSiteRequest serves per-locale rss feeds', async () => {
+  const store = createMultiLocaleStore();
+
+  const defaultFeed = await handleSiteRequest(store, '/feed.xml', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+  });
+  assert.equal(defaultFeed.status, 200);
+  const defaultBody = String(defaultFeed.body);
+  assert.match(defaultBody, /English Post/);
+  assert.doesNotMatch(defaultBody, /中文文章/);
+  assert.match(defaultBody, /<atom:link href="https:\/\/example\.com\/feed\.xml"/);
+
+  const zhFeed = await handleSiteRequest(store, '/zh-CN/feed.xml', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+  });
+  assert.equal(zhFeed.status, 200);
+  const zhBody = String(zhFeed.body);
+  assert.match(zhBody, /中文文章/);
+  assert.doesNotMatch(zhBody, /English Post/);
+  assert.match(zhBody, /<atom:link href="https:\/\/example\.com\/zh-CN\/feed\.xml"/);
+});
+
+test('handleSiteRequest excludes locale directories from the auto top nav', async () => {
+  const store = createMultiLocaleStore();
+
+  const response = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+  });
+
+  assert.equal(response.status, 200);
+  const body = String(response.body);
+  assert.match(body, /<a href="\/docs\/">/);
+  assert.doesNotMatch(body, /<li><a href="\/zh-CN\/">/);
+});
+
+test('handleSiteRequest redirects root to a prefixed default locale', async () => {
+  const store = new MemoryContentStore([
+    {
+      path: 'en/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: Home\n---\n\nEnglish home.\n',
+    },
+    {
+      path: 'zh/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '---\ntitle: 首页\n---\n\n中文首页。\n',
+    },
+  ]);
+  const siteConfig = {
+    ...MULTI_LOCALE_SITE_CONFIG,
+    locales: [
+      {
+        code: 'en',
+        label: 'English',
+        pathPrefix: '/en',
+        isDefault: true,
+        contentBase: 'en',
+        messages: {},
+      },
+      {
+        code: 'zh',
+        label: '中文',
+        pathPrefix: '/zh',
+        isDefault: false,
+        contentBase: 'zh',
+        messages: {},
+      },
+    ],
+  };
+
+  const rootResponse = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  assert.equal(rootResponse.status, 308);
+  assert.equal(rootResponse.headers.location, '/en/');
+
+  const enResponse = await handleSiteRequest(store, '/en/', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  assert.equal(enResponse.status, 200);
+  assert.match(String(enResponse.body), /English home\./);
+});

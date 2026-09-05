@@ -94,6 +94,12 @@ export interface SiteConfig {
   locale?: string;
   /** Flat overrides for built-in UI messages; keys are typed via SiteMessages. */
   messages?: Partial<SiteMessages>;
+  /**
+   * Content locales for a multilingual site. Each non-default locale keeps its
+   * content under a top-level `{code}/` directory that maps 1:1 to its URL
+   * path prefix. Omit for single-language sites.
+   */
+  locales?: LocaleConfigInput[];
   siteUrl?: string;
   favicon?: string;
   socialImage?: string;
@@ -122,6 +128,7 @@ export interface ResolvedSiteConfig {
   siteDescription?: string;
   locale: string;
   messages: Partial<SiteMessages>;
+  locales?: ResolvedLocaleConfig[];
   siteUrl?: string;
   favicon?: string;
   socialImage?: string;
@@ -156,6 +163,32 @@ export interface LoadedSiteConfig {
   configModulePath?: string;
 }
 
+export interface LocaleConfigInput {
+  /** BCP 47 locale code, e.g. 'en' or 'zh-CN'. Also the content directory name. */
+  code: string;
+  /** Switcher display label. Defaults to the code. */
+  label?: string;
+  /**
+   * URL path prefix. Must be '' (only allowed for the default locale) or
+   * '/{code}'. Defaults to '' for the default locale and '/{code}' otherwise.
+   */
+  pathPrefix?: string;
+  /** Mark exactly one locale as default. */
+  default?: boolean;
+  /** UI message overrides for this locale; win over global `messages`. */
+  messages?: Partial<SiteMessages>;
+}
+
+export interface ResolvedLocaleConfig {
+  code: string;
+  label: string;
+  pathPrefix: string;
+  isDefault: boolean;
+  /** Content base directory: '' (content root) for an unprefixed default locale, otherwise `{code}`. */
+  contentBase: string;
+  messages: Partial<SiteMessages>;
+}
+
 export async function loadSiteConfig(
   options: LoadSiteConfigOptions = {},
 ): Promise<ResolvedSiteConfig> {
@@ -174,6 +207,7 @@ export async function loadUserSiteConfig(
   const parsedConfig = await loadConfigSource(configFilePath);
   const legacyConfig = parsedConfig as Record<string, unknown>;
   const messageOverrides = resolveMessageOverrides(parsedConfig.messages, configFilePath);
+  const locales = resolveLocalesConfig(parsedConfig, configFilePath);
 
   const stylesheetPath = parsedConfig.stylesheet
     ? path.resolve(path.dirname(configFilePath), parsedConfig.stylesheet)
@@ -192,8 +226,11 @@ export async function loadUserSiteConfig(
       parsedConfig.siteDescription !== ''
         ? parsedConfig.siteDescription
         : undefined,
-    locale: normalizeSiteLocale(parsedConfig.locale),
+    locale:
+      locales?.find((locale) => locale.isDefault)?.code ??
+      normalizeSiteLocale(parsedConfig.locale),
     messages: messageOverrides,
+    locales,
     siteUrl: normalizeSiteUrl(parsedConfig.siteUrl),
     favicon: normalizeSiteHref(parsedConfig.favicon),
     socialImage: normalizeSiteHref(parsedConfig.socialImage),
@@ -301,6 +338,128 @@ function normalizeSiteLocale(value: unknown): string {
 
   const trimmed = value.trim();
   return trimmed === '' ? DEFAULT_SITE_LOCALE : trimmed;
+}
+
+const LOCALE_CODE_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
+
+function resolveLocalesConfig(
+  parsedConfig: UserSiteConfig,
+  configFilePath: string,
+): ResolvedLocaleConfig[] | undefined {
+  const input = parsedConfig.locales;
+  if (input === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error(
+      `[mdorigin] ${configFilePath}: "locales" must be a non-empty array when configured`,
+    );
+  }
+
+  const seenCodes = new Set<string>();
+  const parsed: Array<{
+    code: string;
+    label: string;
+    pathPrefix: string;
+    isDefault: boolean;
+    messages: Partial<SiteMessages>;
+  }> = [];
+
+  for (const entry of input) {
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`[mdorigin] ${configFilePath}: every "locales" entry must be an object`);
+    }
+
+    const locale = entry as LocaleConfigInput;
+    const code =
+      typeof locale.code === 'string' ? locale.code.trim() : '';
+    if (code === '' || !LOCALE_CODE_PATTERN.test(code)) {
+      throw new Error(
+        `[mdorigin] ${configFilePath}: "locales[].code" must be a BCP 47 style code like "en" or "zh-CN"`,
+      );
+    }
+
+    const normalizedCodeKey = code.toLowerCase();
+    if (seenCodes.has(normalizedCodeKey)) {
+      throw new Error(
+        `[mdorigin] ${configFilePath}: duplicate "locales" code: ${code}`,
+      );
+    }
+    seenCodes.add(normalizedCodeKey);
+
+    const isDefault = locale.default === true;
+    const pathPrefix = resolveLocalePathPrefix(locale, isDefault, configFilePath);
+    const { messages, unknownKeys } = validateSiteMessages(locale.messages);
+    if (unknownKeys.length > 0) {
+      throw new Error(
+        `[mdorigin] ${configFilePath}: "locales[${code}].messages" contains unknown keys: ${unknownKeys.join(', ')}`,
+      );
+    }
+
+    parsed.push({
+      code,
+      label:
+        typeof locale.label === 'string' && locale.label.trim() !== ''
+          ? locale.label.trim()
+          : code,
+      pathPrefix,
+      isDefault,
+      messages,
+    });
+  }
+
+  const defaultCount = parsed.filter((locale) => locale.isDefault).length;
+  if (defaultCount !== 1) {
+    throw new Error(
+      `[mdorigin] ${configFilePath}: "locales" must mark exactly one locale with "default": true (found ${defaultCount})`,
+    );
+  }
+
+  const defaultLocale = parsed.find((locale) => locale.isDefault);
+  const configuredLocale =
+    typeof parsedConfig.locale === 'string' ? parsedConfig.locale.trim() : '';
+  if (
+    configuredLocale !== '' &&
+    configuredLocale.toLowerCase() !== defaultLocale?.code.toLowerCase()
+  ) {
+    throw new Error(
+      `[mdorigin] ${configFilePath}: "locale" (${configuredLocale}) conflicts with the default "locales" entry (${defaultLocale?.code}); remove "locale" or align it with the default locale`,
+    );
+  }
+
+  return parsed.map((locale) => ({
+    ...locale,
+    contentBase: locale.pathPrefix === '' ? '' : locale.code,
+  }));
+}
+
+function resolveLocalePathPrefix(
+  locale: LocaleConfigInput,
+  isDefault: boolean,
+  configFilePath: string,
+): string {
+  if (locale.pathPrefix === undefined) {
+    return isDefault ? '' : `/${locale.code}`;
+  }
+
+  const prefix = locale.pathPrefix;
+  if (prefix === '') {
+    if (!isDefault) {
+      throw new Error(
+        `[mdorigin] ${configFilePath}: "locales[${locale.code}].pathPrefix" can only be empty for the default locale`,
+      );
+    }
+    return '';
+  }
+
+  if (prefix !== `/${locale.code}`) {
+    throw new Error(
+      `[mdorigin] ${configFilePath}: "locales[${locale.code}].pathPrefix" must be "/${locale.code}" or "" (default locales only); got "${prefix}"`,
+    );
+  }
+
+  return prefix;
 }
 
 async function resolveDefaultConfigPath(

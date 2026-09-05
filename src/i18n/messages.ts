@@ -14,6 +14,7 @@ export interface SiteMessages {
   'footer.editPage': string;
   'footer.markdownView': string;
   'footer.markdownViewAria': string;
+  'languages.ariaLabel': string;
   'listing.browseSection': string;
   'listing.loadMore': string;
   'listing.loading': string;
@@ -47,6 +48,7 @@ const enMessages: SiteMessages = {
   'footer.editPage': 'Edit this page',
   'footer.markdownView': 'MD View',
   'footer.markdownViewAria': 'View Markdown source',
+  'languages.ariaLabel': 'Languages',
   'listing.browseSection': 'Browse this section.',
   'listing.loadMore': 'Load more',
   'listing.loading': 'Loading...',
@@ -72,6 +74,7 @@ const zhCnMessages: SiteMessages = {
   'footer.editPage': '编辑此页',
   'footer.markdownView': 'MD 视图',
   'footer.markdownViewAria': '查看 Markdown 源文件',
+  'languages.ariaLabel': '语言',
   'listing.browseSection': '浏览此章节。',
   'listing.loadMore': '加载更多',
   'listing.loading': '加载中...',
@@ -129,9 +132,9 @@ export function formatSiteMessage(
  * script block early.
  */
 export function serializeMessagesForScript(
-  messages: Record<string, string>,
+  value: Record<string, unknown>,
 ): string {
-  return JSON.stringify(messages).replaceAll('<', '\\u003c');
+  return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
 export function validateSiteMessages(

@@ -15,13 +15,19 @@ import {
   extractManagedIndexEntries,
   getDocumentSummary,
   getDocumentTitle as getParsedDocumentTitle,
+  type ParsedDocumentMeta,
   parseMarkdownDocument,
   stripManagedIndexBlock,
   stripManagedIndexLinks,
   stripMachineOnlyMarkdownComments,
 } from './markdown.js';
 import { ensureTrailingSlash, trimLeadingSlash } from './site-url.js';
-import type { MdoPlugin, PageRenderModel, RenderHookContext } from './extensions.js';
+import type {
+  MdoPlugin,
+  PageLanguage,
+  PageRenderModel,
+  RenderHookContext,
+} from './extensions.js';
 import {
   applyIndexTransforms,
   renderFooterOverride,
@@ -29,9 +35,13 @@ import {
   renderPageWithPlugins,
   transformHtmlWithPlugins,
 } from './extensions.js';
-import type { ResolvedSiteConfig, SiteNavItem } from './site-config.js';
+import type {
+  ResolvedLocaleConfig,
+  ResolvedSiteConfig,
+  SiteNavItem,
+} from './site-config.js';
 import { handleApiRoute } from './api.js';
-import { normalizeRequestPath, resolveRequest } from './router.js';
+import { matchRequestLocale, normalizeRequestPath, resolveRequest } from './router.js';
 import {
   escapeHtml,
   renderListingArticleItems,
@@ -40,6 +50,7 @@ import {
 import {
   formatSiteMessage,
   resolveSiteMessages,
+  type SiteMessages,
 } from '../i18n/messages.js';
 import type { SearchApi } from '../search.js';
 
@@ -66,6 +77,11 @@ export async function handleSiteRequest(
 ): Promise<SiteResponse> {
   const plugins = options.plugins ?? [];
   const searchEnabled = options.searchApi !== undefined;
+  const requestLocale = matchRequestLocale(pathname, options.siteConfig.locales);
+  const defaultLocale = options.siteConfig.locales?.find((locale) => locale.isDefault);
+  if (defaultLocale !== undefined && defaultLocale.pathPrefix !== '' && pathname === '/') {
+    return redirect(`${defaultLocale.pathPrefix}/`);
+  }
   const apiRoute = await handleApiRoute(pathname, options.searchParams, {
     searchApi: options.searchApi,
     siteConfig: options.siteConfig,
@@ -80,7 +96,15 @@ export async function handleSiteRequest(
   }
 
   if (pathname === '/feed.xml') {
-    return renderRssFeed(store, options);
+    return renderRssFeed(store, options, defaultLocale ?? null);
+  }
+
+  if (options.siteConfig.locales !== undefined && requestLocale !== null) {
+    for (const locale of options.siteConfig.locales) {
+      if (locale.pathPrefix !== '' && pathname === `${locale.pathPrefix}/feed.xml`) {
+        return renderRssFeed(store, options, locale);
+      }
+    }
   }
 
   const resolved = resolveRequest(pathname);
@@ -147,10 +171,11 @@ export async function handleSiteRequest(
         resolved.requestPath,
         options.siteConfig,
         searchEnabled,
+        requestLocale,
       );
     }
 
-    return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown);
+    return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown, requestLocale);
   }
 
   if (resolved.kind === 'asset') {
@@ -158,13 +183,13 @@ export async function handleSiteRequest(
   }
 
   if (entry.kind !== 'text' || entry.text === undefined) {
-    return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown);
+    return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown, requestLocale);
   }
 
   if (resolved.kind === 'markdown' || negotiatedMarkdown) {
     const parsed = await parseMarkdownDocument(resolved.sourcePath, entry.text);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
-      return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown);
+      return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown, requestLocale);
     }
 
     return {
@@ -181,7 +206,7 @@ export async function handleSiteRequest(
 
   const parsed = await parseMarkdownDocument(resolved.sourcePath, entry.text);
   if (parsed.meta.draft === true && options.draftMode === 'exclude') {
-    return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown);
+    return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown, requestLocale);
   }
   const navigation = await resolveTopNav(store, options.siteConfig);
 
@@ -223,6 +248,9 @@ export async function handleSiteRequest(
     listingEntries,
     searchEnabled,
     plugins,
+    store,
+    requestLocale,
+    draftMode: options.draftMode,
     varyOnAccept: shouldVaryOnAccept(resolved),
   });
 }
@@ -279,6 +307,8 @@ function buildPageRenderModel(options: {
   parsed: Awaited<ReturnType<typeof parseMarkdownDocument>>;
   siteConfig: ResolvedSiteConfig;
   topNav: SiteNavItem[];
+  locale: string;
+  languages: PageLanguage[];
   listingEntries: ReturnType<typeof extractManagedIndexEntries>;
   searchEnabled: boolean;
 }): PageRenderModel {
@@ -286,6 +316,8 @@ function buildPageRenderModel(options: {
     kind: options.listingEntries.length > 0 ? 'listing' : 'page',
     requestPath: options.resolvedRequestPath,
     sourcePath: options.sourcePath,
+    locale: options.locale,
+    languages: options.languages,
     siteTitle: options.siteConfig.siteTitle,
     siteDescription: options.siteConfig.siteDescription,
     siteUrl: options.siteConfig.siteUrl,
@@ -331,12 +363,28 @@ async function renderStructuredPage(options: {
   searchEnabled: boolean;
   plugins: MdoPlugin[];
   varyOnAccept?: boolean;
+  store: ContentStore;
+  requestLocale: ResolvedLocaleConfig | null;
+  draftMode: 'include' | 'exclude';
 }): Promise<SiteResponse> {
-  const locale = options.siteConfig.locale;
-  const messages = resolveSiteMessages(locale, options.siteConfig.messages);
+  const localeConfig = options.requestLocale;
+  const localeCode = localeConfig?.code ?? options.siteConfig.locale;
+  const messages = getEffectiveLocaleMessages(options.siteConfig, localeConfig);
+  const htmlLang = getFrontmatterLocale(options.parsed.meta) ?? localeCode;
+  const languages = await buildLanguageOptions(
+    options.store,
+    { sourcePath: options.sourcePath },
+    localeConfig,
+    options.siteConfig,
+    options.draftMode,
+  );
+  const hreflangAlternates = buildHreflangAlternates(languages, options.siteConfig);
+  const searchLocaleFilter = buildSearchLocaleFilter(options.siteConfig, localeConfig);
   const page = buildPageRenderModel({
     resolvedRequestPath: options.requestPath,
     sourcePath: options.sourcePath,
+    locale: localeCode,
+    languages,
     renderedBodyHtml: options.renderedParsed.html,
     parsed: options.parsed,
     siteConfig: options.siteConfig,
@@ -362,7 +410,7 @@ async function renderStructuredPage(options: {
       return renderDocument({
         siteTitle: currentPage.siteTitle,
         siteDescription: currentPage.siteDescription,
-        locale,
+        locale: htmlLang,
         messages,
         siteUrl: currentPage.siteUrl,
         favicon: currentPage.favicon,
@@ -382,12 +430,15 @@ async function renderStructuredPage(options: {
         stylesheetContent: currentPage.stylesheetContent,
         canonicalPath: currentPage.canonicalPath,
         alternateMarkdownPath: currentPage.alternateMarkdownPath,
-        rssFeedUrl: getRssFeedUrl(currentPage.siteUrl, options.siteConfig),
+        rssFeedUrl: getRssFeedUrl(currentPage.siteUrl, options.siteConfig, localeConfig),
         listingEntries: currentPage.listingEntries,
         listingRequestPath: currentPage.listingRequestPath,
         listingInitialPostCount: currentPage.listingInitialPostCount,
         listingLoadMoreStep: currentPage.listingLoadMoreStep,
         searchEnabled: currentPage.searchEnabled,
+        languages: currentPage.languages,
+        hreflangAlternates,
+        searchLocaleFilter,
         headerHtml,
         footerHtml,
       });
@@ -480,7 +531,13 @@ async function renderNotFoundForRequest(
   options: HandleSiteRequestOptions,
 ): Promise<SiteResponse> {
   const resolved = resolveRequest(pathname);
-  return renderNotFoundForResolvedRequest(store, resolved, options, false);
+  return renderNotFoundForResolvedRequest(
+    store,
+    resolved,
+    options,
+    false,
+    matchRequestLocale(pathname, options.siteConfig.locales),
+  );
 }
 
 async function renderNotFoundForResolvedRequest(
@@ -488,13 +545,20 @@ async function renderNotFoundForResolvedRequest(
   resolved: ReturnType<typeof resolveRequest>,
   options: HandleSiteRequestOptions,
   negotiatedMarkdown: boolean,
+  requestLocale: ResolvedLocaleConfig | null,
 ): Promise<SiteResponse> {
   const varyOnAccept = shouldVaryOnAccept(resolved);
   if (resolved.kind !== 'html' || negotiatedMarkdown) {
     return withNotFoundVary(varyOnAccept);
   }
 
-  return renderHtmlNotFound(store, resolved.requestPath, options, varyOnAccept);
+  return renderHtmlNotFound(
+    store,
+    resolved.requestPath,
+    options,
+    varyOnAccept,
+    requestLocale,
+  );
 }
 
 async function renderHtmlNotFound(
@@ -502,10 +566,19 @@ async function renderHtmlNotFound(
   requestPath: string,
   options: HandleSiteRequestOptions,
   varyOnAccept: boolean,
+  requestLocale: ResolvedLocaleConfig | null,
 ): Promise<SiteResponse> {
   const navigation = await resolveTopNav(store, options.siteConfig);
-  const locale = options.siteConfig.locale;
-  const messages = resolveSiteMessages(locale, options.siteConfig.messages);
+  const localeConfig = requestLocale;
+  const locale = localeConfig?.code ?? options.siteConfig.locale;
+  const messages = getEffectiveLocaleMessages(options.siteConfig, localeConfig);
+  const languages = await buildLanguageOptions(
+    store,
+    {},
+    localeConfig,
+    options.siteConfig,
+    options.draftMode,
+  );
   const body = [
     `<h1>${escapeHtml(messages['error.notFoundTitle'])}</h1>`,
     `<p>${formatSiteMessage(messages['error.notFoundBody'], {
@@ -532,6 +605,7 @@ async function renderHtmlNotFound(
       body,
       locale,
       messages,
+      languages,
       showSummary: false,
       showDate: false,
       topNav: navigation.items,
@@ -539,7 +613,7 @@ async function renderHtmlNotFound(
       footerText: options.siteConfig.footerText,
       socialLinks: options.siteConfig.socialLinks,
       stylesheetContent: options.siteConfig.stylesheetContent,
-      rssFeedUrl: getRssFeedUrl(options.siteConfig.siteUrl, options.siteConfig),
+      rssFeedUrl: getRssFeedUrl(options.siteConfig.siteUrl, options.siteConfig, localeConfig),
       searchEnabled: options.searchApi !== undefined,
     }),
   };
@@ -567,6 +641,193 @@ function redirect(location: string): SiteResponse {
     headers: {
       location,
     },
+  };
+}
+
+function getEffectiveLocaleMessages(
+  siteConfig: ResolvedSiteConfig,
+  localeConfig: ResolvedLocaleConfig | null,
+): SiteMessages {
+  if (localeConfig === null) {
+    return resolveSiteMessages(siteConfig.locale, siteConfig.messages);
+  }
+
+  return resolveSiteMessages(localeConfig.code, {
+    ...siteConfig.messages,
+    ...localeConfig.messages,
+  });
+}
+
+function getFrontmatterLocale(meta: ParsedDocumentMeta): string | null {
+  if (typeof meta.lang !== 'string') {
+    return null;
+  }
+
+  const trimmed = meta.lang.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+interface LanguageContentTarget {
+  sourcePath?: string;
+  directoryPath?: string;
+}
+
+async function buildLanguageOptions(
+  store: ContentStore,
+  target: LanguageContentTarget,
+  currentLocale: ResolvedLocaleConfig | null,
+  siteConfig: ResolvedSiteConfig,
+  draftMode: 'include' | 'exclude',
+): Promise<PageLanguage[]> {
+  const locales = siteConfig.locales;
+  if (locales === undefined || locales.length === 0) {
+    return [];
+  }
+
+  const languages: PageLanguage[] = [];
+  for (const locale of locales) {
+    const translated = await localeHasContent(
+      store,
+      target,
+      currentLocale,
+      locale,
+      draftMode,
+    );
+    languages.push({
+      code: locale.code,
+      label: locale.label,
+      href:
+        translated === null
+          ? getLocaleHomePath(locale)
+          : getCanonicalHtmlPathForContentPath(translated),
+      current: locale === currentLocale,
+      translated: translated !== null,
+    });
+  }
+
+  return languages;
+}
+
+async function localeHasContent(
+  store: ContentStore,
+  target: LanguageContentTarget,
+  currentLocale: ResolvedLocaleConfig | null,
+  locale: ResolvedLocaleConfig,
+  draftMode: 'include' | 'exclude',
+): Promise<string | null> {
+  if (locale === currentLocale) {
+    return target.sourcePath
+      ? target.sourcePath
+      : target.directoryPath === ''
+        ? 'index.md'
+        : `${target.directoryPath}/index.md`;
+  }
+
+  const candidates: string[] = [];
+  if (target.sourcePath !== undefined) {
+    candidates.push(mapContentPathForLocale(target.sourcePath, currentLocale, locale));
+  } else {
+    const directoryPath = target.directoryPath ?? '';
+    for (const candidate of getDirectoryIndexCandidates(
+      mapContentPathForLocale(directoryPath, currentLocale, locale),
+    )) {
+      candidates.push(candidate);
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (await hasPublishedContent(store, candidate, draftMode)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function mapContentPathForLocale(
+  contentPath: string,
+  from: ResolvedLocaleConfig | null,
+  to: ResolvedLocaleConfig,
+): string {
+  if (from === null || from.contentBase === '') {
+    return to.contentBase === '' ? contentPath : `${to.contentBase}/${contentPath}`;
+  }
+
+  if (!contentPath.startsWith(`${from.contentBase}/`)) {
+    return contentPath;
+  }
+
+  const rest = contentPath.slice(from.contentBase.length + 1);
+  return to.contentBase === '' ? rest : `${to.contentBase}/${rest}`;
+}
+
+function getLocaleHomePath(locale: ResolvedLocaleConfig): string {
+  return locale.pathPrefix === '' ? '/' : `${locale.pathPrefix}/`;
+}
+
+async function hasPublishedContent(
+  store: ContentStore,
+  contentPath: string,
+  draftMode: 'include' | 'exclude',
+): Promise<boolean> {
+  const entry = await store.get(contentPath);
+  if (entry === null || entry.kind !== 'text' || entry.text === undefined) {
+    return false;
+  }
+
+  if (draftMode === 'exclude') {
+    const parsed = await parseMarkdownDocument(contentPath, entry.text);
+    if (parsed.meta.draft === true) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function buildHreflangAlternates(
+  languages: PageLanguage[],
+  siteConfig: ResolvedSiteConfig,
+): Array<{ hreflang: string; href: string }> {
+  if (languages.length === 0 || siteConfig.siteUrl === undefined) {
+    return [];
+  }
+
+  const base = ensureTrailingSlash(siteConfig.siteUrl);
+  const alternates = languages
+    .filter((language) => language.translated)
+    .map((language) => ({
+      hreflang: language.code,
+      href: new URL(trimLeadingSlash(language.href), base).toString(),
+    }));
+
+  const defaultLocale = siteConfig.locales?.find((locale) => locale.isDefault);
+  const defaultLanguage = defaultLocale
+    ? languages.find((language) => language.code === defaultLocale.code)
+    : undefined;
+  if (defaultLanguage?.translated) {
+    alternates.push({
+      hreflang: 'x-default',
+      href: new URL(trimLeadingSlash(defaultLanguage.href), base).toString(),
+    });
+  }
+
+  return alternates;
+}
+
+function buildSearchLocaleFilter(
+  siteConfig: ResolvedSiteConfig,
+  localeConfig: ResolvedLocaleConfig | null,
+): { include: string; exclude: string[] } | undefined {
+  if (siteConfig.locales === undefined || localeConfig === null) {
+    return undefined;
+  }
+
+  return {
+    include: localeConfig.contentBase === '' ? '' : `${localeConfig.contentBase}/`,
+    exclude: siteConfig.locales
+      .filter((locale) => locale !== localeConfig && locale.contentBase !== '')
+      .map((locale) => `${locale.contentBase}/`),
   };
 }
 
@@ -615,14 +876,25 @@ interface FeedItem {
 async function renderRssFeed(
   store: ContentStore,
   options: HandleSiteRequestOptions,
+  locale: ResolvedLocaleConfig | null,
 ): Promise<SiteResponse> {
   if (!isRssEnabled(options.siteConfig) || !options.siteConfig.siteUrl) {
     return notFound();
   }
 
-  const items = await collectRssFeedItems(store, '', options);
+  const excludedLocaleDirectories = new Set(
+    (options.siteConfig.locales ?? [])
+      .filter((entry) => entry.contentBase !== '' && entry !== locale)
+      .map((entry) => entry.contentBase),
+  );
+  const items = await collectRssFeedItems(
+    store,
+    locale?.contentBase ?? '',
+    options,
+    excludedLocaleDirectories,
+  );
   const limitedItems = items.slice(0, options.siteConfig.rss?.maxItems ?? 20);
-  const rssFeedUrl = getRssFeedUrl(options.siteConfig.siteUrl, options.siteConfig);
+  const rssFeedUrl = getRssFeedUrl(options.siteConfig.siteUrl, options.siteConfig, locale);
   const title = options.siteConfig.rss?.title ?? options.siteConfig.siteTitle;
   const description =
     options.siteConfig.rss?.description ?? options.siteConfig.siteDescription;
@@ -780,6 +1052,7 @@ async function collectRssFeedItems(
   store: ContentStore,
   directoryPath: string,
   options: HandleSiteRequestOptions,
+  excludedDirectories: Set<string>,
 ): Promise<FeedItem[]> {
   const entries = await store.listDirectory(directoryPath);
   if (entries === null) {
@@ -791,7 +1064,12 @@ async function collectRssFeedItems(
 
   for (const entry of entries) {
     if (entry.kind === 'directory') {
-      feedItems.push(...(await collectRssFeedItems(store, entry.path, options)));
+      if (excludedDirectories.has(entry.path)) {
+        continue;
+      }
+      feedItems.push(
+        ...(await collectRssFeedItems(store, entry.path, options, excludedDirectories)),
+      );
       continue;
     }
 
@@ -881,6 +1159,7 @@ async function renderDirectoryListing(
   requestPath: string,
   siteConfig: ResolvedSiteConfig,
   searchEnabled: boolean,
+  requestLocale: ResolvedLocaleConfig | null,
 ): Promise<SiteResponse> {
   const directoryPath =
     requestPath === '/' ? '' : requestPath.slice(1).replace(/\/$/, '');
@@ -891,8 +1170,15 @@ async function renderDirectoryListing(
 
   const visibleEntries = entries.filter(isVisibleDirectoryEntry);
   const navigation = await resolveTopNav(store, siteConfig);
-  const locale = siteConfig.locale;
-  const messages = resolveSiteMessages(locale, siteConfig.messages);
+  const locale = requestLocale?.code ?? siteConfig.locale;
+  const messages = getEffectiveLocaleMessages(siteConfig, requestLocale);
+  const languages = await buildLanguageOptions(
+    store,
+    { directoryPath },
+    requestLocale,
+    siteConfig,
+    'exclude',
+  );
   const listItems = visibleEntries
     .map((entry) => `<li><a href="${getDirectoryEntryHref(requestPath, entry)}">${escapeHtml(getDirectoryEntryLabel(entry))}</a></li>`)
     .join('');
@@ -914,6 +1200,7 @@ async function renderDirectoryListing(
       siteDescription: siteConfig.siteDescription,
       locale,
       messages,
+      languages,
       siteUrl: siteConfig.siteUrl,
       favicon: siteConfig.favicon,
       logo: siteConfig.logo,
@@ -930,7 +1217,7 @@ async function renderDirectoryListing(
       alternateMarkdownPath: getMarkdownRequestPathForContentPath(
         getDirectoryIndexContentPathForRequestPath(requestPath),
       ),
-      rssFeedUrl: getRssFeedUrl(siteConfig.siteUrl, siteConfig),
+      rssFeedUrl: getRssFeedUrl(siteConfig.siteUrl, siteConfig, requestLocale),
       searchEnabled,
     }),
   };
@@ -1035,6 +1322,9 @@ async function tryRenderAlternateDirectoryIndex(
       listingEntries,
       searchEnabled: options.searchApi !== undefined,
       plugins,
+      store,
+      requestLocale: matchRequestLocale(requestPath, options.siteConfig.locales),
+      draftMode: options.draftMode,
     });
   }
 
@@ -1305,12 +1595,17 @@ function isRssEnabled(siteConfig: ResolvedSiteConfig): boolean {
 function getRssFeedUrl(
   siteUrl: string | undefined,
   siteConfig: ResolvedSiteConfig,
+  locale: ResolvedLocaleConfig | null,
 ): string | undefined {
   if (!siteUrl || !isRssEnabled(siteConfig)) {
     return undefined;
   }
 
-  return new URL('feed.xml', ensureTrailingSlash(siteUrl)).toString();
+  const feedPath =
+    locale !== null && locale.pathPrefix !== ''
+      ? `${locale.pathPrefix.slice(1)}/feed.xml`
+      : 'feed.xml';
+  return new URL(feedPath, ensureTrailingSlash(siteUrl)).toString();
 }
 
 function getEditLinkHref(
@@ -1344,10 +1639,18 @@ async function resolveTopNav(
   }
 
   const directories = rootEntries.filter((entry) => entry.kind === 'directory');
+  const localeDirectoryNames = new Set(
+    (siteConfig.locales ?? [])
+      .filter((locale) => locale.contentBase !== '')
+      .map((locale) => locale.contentBase),
+  );
   const navItems: SiteNavItem[] = [];
   const orderedNavItems: Array<SiteNavItem & { order?: number }> = [];
 
   for (const entry of directories) {
+    if (localeDirectoryNames.has(entry.name)) {
+      continue;
+    }
     const resolved = await resolveDirectoryNav(store, entry);
     if (resolved.type !== 'page') {
       continue;

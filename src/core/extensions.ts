@@ -17,10 +17,24 @@ export interface IndexTransformContext {
   siteConfig?: ResolvedSiteConfig;
 }
 
+export interface PageLanguage {
+  code: string;
+  label: string;
+  /** Root-relative href for this language: the translated page when available, otherwise the language home. */
+  href: string;
+  current: boolean;
+  /** Whether a page-level translation exists for this language. */
+  translated: boolean;
+}
+
 export interface PageRenderModel {
   kind: 'page' | 'listing';
   requestPath: string;
   sourcePath: string;
+  /** Effective UI locale for this request (frontmatter overrides not applied). */
+  locale: string;
+  /** Language switcher entries; empty for single-language sites. */
+  languages: PageLanguage[];
   siteTitle: string;
   siteDescription?: string;
   siteUrl?: string;

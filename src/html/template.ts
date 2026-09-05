@@ -3,6 +3,7 @@ import type {
   SiteNavItem,
   SiteSocialLink,
 } from '../core/site-config.js';
+import type { PageLanguage } from '../core/extensions.js';
 import type { ManagedIndexEntry } from '../core/markdown.js';
 import {
   DEFAULT_SITE_LOCALE,
@@ -41,6 +42,12 @@ export interface RenderDocumentOptions {
   listingInitialPostCount?: number;
   listingLoadMoreStep?: number;
   searchEnabled?: boolean;
+  /** Language switcher entries; rendered in the header when more than one is present. */
+  languages?: PageLanguage[];
+  /** hreflang alternates with absolute URLs, including x-default when applicable. */
+  hreflangAlternates?: Array<{ hreflang: string; href: string }>;
+  /** Locale content filter handed to the search client script. */
+  searchLocaleFilter?: { include: string; exclude: string[] };
   headerHtml?: string;
   footerHtml?: string;
 }
@@ -83,6 +90,15 @@ export function renderDocument(options: RenderDocumentOptions) {
         options.rssFeedUrl,
       )}">`
     : '';
+  const hreflangMeta =
+    options.hreflangAlternates && options.hreflangAlternates.length > 0
+      ? options.hreflangAlternates
+          .map(
+            (alternate) =>
+              `<link rel="alternate" hreflang="${escapeHtml(alternate.hreflang)}" href="${escapeHtml(alternate.href)}">`,
+          )
+          .join('')
+      : '';
   const stylesheetBlock = `<style>${getDefaultThemeStyles()}${
     options.stylesheetContent ? `\n${options.stylesheetContent}` : ''
   }</style>`;
@@ -113,6 +129,17 @@ export function renderDocument(options: RenderDocumentOptions) {
         '</div>',
       ].join('')
     : '';
+  const languagesBlock =
+    options.languages && options.languages.length > 1
+      ? `<nav class="site-languages" aria-label="${escapeHtml(messages['languages.ariaLabel'])}"><ul>${options.languages
+          .map(
+            (language) =>
+              `<li><a href="${escapeHtml(language.href)}" hreflang="${escapeHtml(language.code)}"${
+                language.current ? ' aria-current="page"' : ''
+              }>${escapeHtml(language.label)}</a></li>`,
+          )
+          .join('')}</ul></nav>`
+      : '';
   const footerNavBlock =
     options.footerNav && options.footerNav.length > 0
       ? `<nav class="site-footer__nav"><ul>${options.footerNav
@@ -174,11 +201,13 @@ export function renderDocument(options: RenderDocumentOptions) {
           messages,
         )
       : options.body;
-  const searchScript = options.searchEnabled ? renderSearchScript(messages) : '';
+  const searchScript = options.searchEnabled
+    ? renderSearchScript(messages, options.searchLocaleFilter)
+    : '';
 
   const headerBlock =
     options.headerHtml ??
-    `<header class="site-header"><div class="site-header__inner"><div class="site-header__brand"><p class="site-header__title"><a href="${brandHref}">${logoBlock}<span>${siteTitle}</span></a></p>${siteDescriptionBlock}</div><div class="site-header__actions">${navBlock}${searchToggleBlock}</div></div></header>`;
+    `<header class="site-header"><div class="site-header__inner"><div class="site-header__brand"><p class="site-header__title"><a href="${brandHref}">${logoBlock}<span>${siteTitle}</span></a></p>${siteDescriptionBlock}</div><div class="site-header__actions">${navBlock}${languagesBlock}${searchToggleBlock}</div></div></header>`;
   const renderedFooterBlock = options.footerHtml ?? footerBlock;
 
   return [
@@ -194,6 +223,7 @@ export function renderDocument(options: RenderDocumentOptions) {
     socialImageMeta,
     alternateMarkdownMeta,
     rssMeta,
+    hreflangMeta,
     stylesheetBlock,
     '</head>',
     '<body>',
@@ -421,7 +451,10 @@ function renderListingLoadMoreScript(messages: SiteMessages): string {
 </script>`;
 }
 
-function renderSearchScript(messages: SiteMessages): string {
+function renderSearchScript(
+  messages: SiteMessages,
+  localeFilter: { include: string; exclude: string[] } | undefined,
+): string {
   return [
     '<script>',
     '(function () {',
@@ -442,6 +475,7 @@ function renderSearchScript(messages: SiteMessages): string {
       initialHint: messages['search.initialHint'],
       untitled: messages['search.untitled'],
     })};`,
+    `  const F = ${localeFilter === undefined ? 'null' : serializeMessagesForScript(localeFilter)};`,
     '  let controller = null;',
     '  function renderMessage(message) {',
     '    results.innerHTML = `<p class="site-search__message">${escapeHtmlForScript(message)}</p>`;',
@@ -459,6 +493,14 @@ function renderSearchScript(messages: SiteMessages): string {
     '      return `<a class="site-search__item" href="${href}"><strong class="site-search__item-title">${title}</strong>${summary}${excerpt}</a>`;',
     '    }).join("");',
     '  }',
+    '  function filterHits(hits) {',
+    '    if (!F || !Array.isArray(hits)) return hits;',
+    '    return hits.filter((hit) => {',
+    '      if (typeof hit.relativePath !== "string") return false;',
+    '      if (F.include !== "" && !hit.relativePath.startsWith(F.include)) return false;',
+    '      return !F.exclude.some((prefix) => hit.relativePath.startsWith(prefix));',
+    '    });',
+    '  }',
     '  async function runSearch(query) {',
     '    if (controller) controller.abort();',
     '    controller = new AbortController();',
@@ -473,7 +515,7 @@ function renderSearchScript(messages: SiteMessages): string {
     '        return;',
     '      }',
     '      const payload = await response.json();',
-    '      renderHits(payload.hits);',
+    '      renderHits(filterHits(payload.hits));',
     '    } catch (error) {',
     '      if (error && typeof error === "object" && "name" in error && error.name === "AbortError") return;',
     '      renderMessage(M.failed);',

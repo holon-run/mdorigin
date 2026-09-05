@@ -221,6 +221,35 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
   white-space: nowrap;
 }
 .site-nav a:hover { color: var(--link-hover); }
+.site-languages ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  align-items: center;
+}
+.site-languages li {
+  display: flex;
+  align-items: center;
+}
+.site-languages a {
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 0.05rem;
+  white-space: nowrap;
+}
+.site-languages a:hover { color: var(--link-hover); }
+.site-languages a[aria-current='page'] {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
 main {
   max-width: calc(var(--max) + 4rem);
   margin: 0 auto;

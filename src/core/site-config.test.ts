@@ -387,3 +387,111 @@ test('loadSiteConfig rejects removed search.hybrid setting', async () => {
     /"search\.hybrid" has been removed/,
   );
 });
+
+test('loadSiteConfig resolves locales with default prefixes and content bases', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locales-'));
+  await writeFile(
+    path.join(rootDir, 'mdorigin.config.json'),
+    JSON.stringify(
+      {
+        siteTitle: 'Multi Site',
+        locales: [
+          { code: 'en', default: true },
+          { code: 'zh-CN', label: '中文', messages: { 'search.go': '找' } },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  const config = await loadSiteConfig({ rootDir });
+
+  assert.equal(config.locale, 'en');
+  assert.deepEqual(config.locales, [
+    {
+      code: 'en',
+      label: 'en',
+      pathPrefix: '',
+      isDefault: true,
+      contentBase: '',
+      messages: {},
+    },
+    {
+      code: 'zh-CN',
+      label: '中文',
+      pathPrefix: '/zh-CN',
+      isDefault: false,
+      contentBase: 'zh-CN',
+      messages: { 'search.go': '找' },
+    },
+  ]);
+});
+
+test('loadSiteConfig resolves an explicit default pathPrefix', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locales-prefixed-'));
+  await writeFile(
+    path.join(rootDir, 'mdorigin.config.json'),
+    JSON.stringify(
+      {
+        locales: [
+          { code: 'en', default: true, pathPrefix: '/en' },
+          { code: 'zh' },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  const config = await loadSiteConfig({ rootDir });
+
+  assert.equal(config.locales?.[0]?.pathPrefix, '/en');
+  assert.equal(config.locales?.[0]?.contentBase, 'en');
+  assert.equal(config.locales?.[1]?.pathPrefix, '/zh');
+});
+
+test('loadSiteConfig rejects invalid locales configurations', async () => {
+  const cases: Array<{ config: unknown; pattern: RegExp }> = [
+    {
+      config: { locales: [{ code: 'en' }] },
+      pattern: /exactly one locale with "default": true \(found 0\)/,
+    },
+    {
+      config: { locales: [{ code: 'en', default: true }, { code: 'zh', default: true }] },
+      pattern: /exactly one locale with "default": true \(found 2\)/,
+    },
+    {
+      config: { locales: [{ code: 'en', default: true }, { code: 'EN' }] },
+      pattern: /duplicate "locales" code: EN/,
+    },
+    {
+      config: { locales: [{ code: 'en', default: true }, { code: 'zh-CN', pathPrefix: '/zh' }] },
+      pattern: /"locales\[zh-CN\]\.pathPrefix" must be "\/zh-CN" or ""/,
+    },
+    {
+      config: { locales: [{ code: 'en', default: true, pathPrefix: '' }, { code: 'zh', pathPrefix: '' }] },
+      pattern: /"locales\[zh\]\.pathPrefix" can only be empty for the default locale/,
+    },
+    {
+      config: { locale: 'fr', locales: [{ code: 'en', default: true }, { code: 'zh' }] },
+      pattern: /"locale" \(fr\) conflicts with the default "locales" entry \(en\)/,
+    },
+    {
+      config: { locales: [{ code: 'en', default: true }, { code: 'zh', messages: { 'nope.key': 'x' } }] },
+      pattern: /"locales\[zh\]\.messages" contains unknown keys: nope\.key/,
+    },
+  ];
+
+  for (const { config, pattern } of cases) {
+    const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locales-invalid-'));
+    await writeFile(
+      path.join(rootDir, 'mdorigin.config.json'),
+      JSON.stringify(config),
+      'utf8',
+    );
+    await assert.rejects(loadSiteConfig({ rootDir }), pattern);
+  }
+});
