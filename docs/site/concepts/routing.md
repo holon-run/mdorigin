@@ -121,3 +121,22 @@ aliases:
   - /legacy/getting-started
 ---
 ```
+
+## Multilingual routes
+
+When `locales` is configured, non-default languages keep content under a top-level directory named after the locale code, and URLs carry the matching prefix:
+
+```text
+docs/site/
+  README.md          # default language (unprefixed)
+  guides/
+  zh-CN/             # /zh-CN/
+    README.md
+    guides/
+```
+
+- default-language content lives at the content root with unprefixed URLs
+- other languages live under `{code}/` with the URL prefix matching the directory name, e.g. `/zh-CN/guides/`
+- missing translations return 404; there is no automatic language fallback
+- the page header renders a language switcher, and `<head>` emits `hreflang` alternates only for translations that exist
+- RSS is per language: the default language keeps `/feed.xml`, others get `/{code}/feed.xml`

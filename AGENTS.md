@@ -19,6 +19,7 @@
 - Skill bundles are treated as post bundles by default.
 - Symlinked content directories are supported in dev, `build index`, and Cloudflare bundle generation.
 - Search is powered by `indexbind`.
+- UI i18n (`locale` + `messages`) and content-level multilingual sites (`locales` with per-language directories, hreflang, language switcher, per-locale feeds) are supported.
 - Code-based extension system exists via `mdorigin.config.ts`.
 
 ## Extension System

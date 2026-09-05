@@ -121,6 +121,8 @@ type PageRenderModel = {
   kind: "page" | "listing";
   requestPath: string;
   sourcePath: string;
+  locale: string;
+  languages: PageLanguage[];
   siteTitle: string;
   siteDescription?: string;
   siteUrl?: string;
@@ -159,6 +161,10 @@ The most important fields in practice are:
   - current published path, such as `/guides/getting-started`
 - `sourcePath`
   - source markdown path inside the content tree
+- `locale`
+  - effective UI locale for the request, such as `en` or `zh-CN`
+- `languages`
+  - language switcher entries for multilingual sites; each entry carries `code`, `label`, `href`, `current`, and `translated`
 - `title`
   - normalized page title
 - `meta`
@@ -177,6 +183,22 @@ The most important fields in practice are:
   - raw markdown route
 - `searchEnabled`
   - whether the search UI/API is enabled for this site
+
+### `PageLanguage`
+
+Language switcher entries on `PageRenderModel` use this shape:
+
+```ts
+type PageLanguage = {
+  code: string;
+  label: string;
+  href: string;
+  current: boolean;
+  translated: boolean;
+};
+```
+
+`href` points at the translated page when one exists and falls back to that language's home otherwise.
 
 ### `RenderHookContext`
 

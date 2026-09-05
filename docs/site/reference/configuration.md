@@ -22,6 +22,9 @@ Useful fields:
 
 - `siteTitle`
 - `siteDescription`
+- `locale`
+- `messages`
+- `locales`
 - `siteUrl`
 - `favicon`
 - `socialImage`
@@ -97,6 +100,67 @@ The design boundary is:
 - plugins may fully replace page rendering
 - plugins should not replace the request kernel itself
 
+## Localization
+
+`mdorigin` localizes built-in UI chrome (search panel, footer actions, listing labels, 404 page) from a typed message catalog with built-in `en` and `zh-CN` locales.
+
+Single-language sites set:
+
+```json
+{
+  "locale": "zh-CN"
+}
+```
+
+Rules:
+
+- `locale` accepts a BCP 47 code and defaults to `en`
+- unknown locales fall back to the English catalog without errors
+- `<html lang>` follows the effective locale; a page may override it with a `lang` frontmatter field
+- any built-in message can be overridden flat by key through `messages`:
+
+```json
+{
+  "locale": "zh-CN",
+  "messages": {
+    "search.toggle": "搜一下"
+  }
+}
+```
+
+Multilingual content sites configure `locales` instead. Each locale keeps its content under a top-level `{code}` directory that maps 1:1 to its URL prefix:
+
+```json
+{
+  "siteUrl": "https://example.com",
+  "locales": [
+    { "code": "en", "default": true },
+    { "code": "zh-CN", "label": "中文" }
+  ]
+}
+```
+
+With the config above:
+
+- English content lives at the content root and serves unprefixed URLs
+- Chinese content lives under `zh-CN/` and serves `/zh-CN/...` URLs
+- pages render a header language switcher and emit `hreflang` alternates (plus `x-default`) only for translations that actually exist
+- missing translations return 404 instead of falling back to another language
+- `/feed.xml` serves the default locale; each additional locale gets `/{code}/feed.xml`
+- search results are filtered client-side to the current locale's content
+- locale directories are excluded from auto-derived top navigation
+
+Per-locale fields:
+
+- `locales[].code` (required): BCP 47 code; also the content directory name
+- `locales[].label`: switcher display label, defaults to the code
+- `locales[].default`: exactly one locale must be marked `true`
+- `locales[].pathPrefix`: `""` (default locale only, content at the root) or `"/{code}"`; other values are rejected
+- `locales[].messages`: per-locale message overrides that win over global `messages`
+
+A default locale may also set an explicit `pathPrefix` such as `/en`; its content then lives under `en/` and `/` redirects to `/en/`.
+
+## Site Metadata
 ## Site Metadata
 
 - If `siteTitle` is configured, it is used directly.

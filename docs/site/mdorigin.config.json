@@ -1,6 +1,10 @@
 {
   "siteTitle": "mdorigin",
   "siteDescription": "Markdown-first publishing for humans and agents.",
+  "locales": [
+    { "code": "en", "default": true },
+    { "code": "zh-CN", "label": "中文" }
+  ],
   "siteUrl": "https://mdorigin.jolestar.workers.dev",
   "favicon": "/favicon.svg",
   "socialImage": "/og.svg",
