@@ -56,7 +56,7 @@ npm install indexbind
 `indexbind` 运行时与索引细节见：
 
 - 文档：<https://indexbind.jolestar.workers.dev>
-- 仓库：<https://github.com/jolestar/indexbind>
+- 仓库：<https://github.com/holon-run/indexbind>
 
 强制使用较旧的轻量后端：
 

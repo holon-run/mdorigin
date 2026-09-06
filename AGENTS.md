@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Snapshot
-- Repo: `jolestar/mdorigin`
+- Repo: `holon-run/mdorigin`
 - Main branch is the active integration branch.
 - npm package has been released through GitHub Actions trusted publishing.
 - Cloudflare site deploys automatically from GitHub Actions on pushes to `main`.
@@ -58,7 +58,7 @@
   5. Verify `npm view mdorigin version`
 
 ## Cloudflare Deployment
-- Site URL: `https://mdorigin.jolestar.workers.dev`
+- Site URL: `https://mdorigin.holon.run`
 - Deployment runs automatically on pushes to `main` via `.github/workflows/deploy-cloudflare.yml`.
 - The workflow uses this sequence:
 

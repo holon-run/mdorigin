@@ -44,7 +44,7 @@ mdorigin search --index dist/search --meta section=guides "cloudflare deploy"
 `indexbind` 文档：
 
 - 文档：<https://indexbind.jolestar.workers.dev>
-- 仓库：<https://github.com/jolestar/indexbind>
+- 仓库：<https://github.com/holon-run/indexbind>
 
 `build search` 现在默认使用质量更高的 `model2vec` 后端。如果你想要更小的旧版回退，运行：
 

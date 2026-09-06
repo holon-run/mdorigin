@@ -23,7 +23,7 @@ That means `mdorigin` should own content semantics, while page rendering remains
 - extensionless routes render human-friendly HTML from the same files
 - `README.md`, `index.md`, and `SKILL.md` all fit into one routing model
 - the same core works in local preview and Cloudflare Workers
-- optional search is powered by [`indexbind`](https://github.com/jolestar/indexbind)
+- optional search is powered by [`indexbind`](https://github.com/holon-run/indexbind)
 
 ## Install
 
@@ -87,7 +87,7 @@ The intended boundary is:
 
 ## Optional Search
 
-`mdorigin` can build a local retrieval bundle through the optional [`indexbind`](https://github.com/jolestar/indexbind) package. For the retrieval engine itself, see the `indexbind` docs: <https://indexbind.jolestar.workers.dev>.
+`mdorigin` can build a local retrieval bundle through the optional [`indexbind`](https://github.com/holon-run/indexbind) package. For the retrieval engine itself, see the `indexbind` docs: <https://indexbind.jolestar.workers.dev>.
 
 ```bash
 npm install indexbind
@@ -127,7 +127,7 @@ Runtime endpoints:
 
 ## Docs
 
-- Docs site: <https://mdorigin.jolestar.workers.dev>
+- Docs site: <https://mdorigin.holon.run>
 - Getting started: [`docs/site/guides/getting-started.md`](docs/site/guides/getting-started.md)
 - Routing model: [`docs/site/concepts/routing.md`](docs/site/concepts/routing.md)
 - Directory indexes: [`docs/site/concepts/directory-indexes.md`](docs/site/concepts/directory-indexes.md)
@@ -136,4 +136,4 @@ Runtime endpoints:
 - Search setup: [`docs/site/guides/getting-started.md`](docs/site/guides/getting-started.md#quick-start)
 - Cloudflare deployment: [`docs/site/guides/cloudflare.md`](docs/site/guides/cloudflare.md)
 
-The docs site at <https://mdorigin.jolestar.workers.dev> is deployed automatically from `main` with GitHub Actions.
+The docs site at <https://mdorigin.holon.run> is deployed automatically from `main` with GitHub Actions.

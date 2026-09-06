@@ -5,11 +5,11 @@
   "description": "Markdown-first publishing for humans and agents.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jolestar/mdorigin.git"
+    "url": "git+https://github.com/holon-run/mdorigin.git"
   },
-  "homepage": "https://mdorigin.jolestar.workers.dev",
+  "homepage": "https://mdorigin.holon.run",
   "bugs": {
-    "url": "https://github.com/jolestar/mdorigin/issues"
+    "url": "https://github.com/holon-run/mdorigin/issues"
   },
   "keywords": [
     "markdown",

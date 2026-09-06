@@ -63,12 +63,12 @@ When `build cloudflare` is given `--search`, the search bundle is staged outside
 
 When an agent needs details, prefer the published docs instead of duplicating everything in the skill:
 
-- HTML docs: `https://mdorigin.jolestar.workers.dev`
-- Raw markdown home: `https://mdorigin.jolestar.workers.dev/README.md`
-- Routing docs: `https://mdorigin.jolestar.workers.dev/concepts/routing.md`
-- Configuration docs: `https://mdorigin.jolestar.workers.dev/reference/configuration.md`
-- Extensions docs: `https://mdorigin.jolestar.workers.dev/guides/extensions.md`
-- Cloudflare docs: `https://mdorigin.jolestar.workers.dev/guides/cloudflare.md`
+- HTML docs: `https://mdorigin.holon.run`
+- Raw markdown home: `https://mdorigin.holon.run/README.md`
+- Routing docs: `https://mdorigin.holon.run/concepts/routing.md`
+- Configuration docs: `https://mdorigin.holon.run/reference/configuration.md`
+- Extensions docs: `https://mdorigin.holon.run/guides/extensions.md`
+- Cloudflare docs: `https://mdorigin.holon.run/guides/cloudflare.md`
 
 Extensionless routes also return markdown when the client sends `Accept: text/markdown`.
 
@@ -76,8 +76,8 @@ Extensionless routes also return markdown when the client sends `Accept: text/ma
 
 Use search when you need the right doc page before opening it:
 
-- Search API: `https://mdorigin.jolestar.workers.dev/api/search?q=<query>`
-- OpenAPI schema: `https://mdorigin.jolestar.workers.dev/api/openapi.json`
+- Search API: `https://mdorigin.holon.run/api/search?q=<query>`
+- OpenAPI schema: `https://mdorigin.holon.run/api/openapi.json`
 - Metadata filters: `/api/search?q=<query>&meta.type=post` or `mdorigin search --index dist/search --meta type=post <query>`
 - Repeated local rebuilds can use `mdorigin build search --root docs/site --incremental`
 - Site-level search defaults such as `topK`, `mode`, `minScore`, reranker, and score adjustment live in `mdorigin.config.*`; see the configuration docs for details
@@ -86,6 +86,6 @@ Use search when you need the right doc page before opening it:
 Examples:
 
 ```bash
-curl 'https://mdorigin.jolestar.workers.dev/api/search?q=cloudflare%20deploy'
-curl -H 'Accept: text/markdown' 'https://mdorigin.jolestar.workers.dev/guides/getting-started'
+curl 'https://mdorigin.holon.run/api/search?q=cloudflare%20deploy'
+curl -H 'Accept: text/markdown' 'https://mdorigin.holon.run/guides/getting-started'
 ```

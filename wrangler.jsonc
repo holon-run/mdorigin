@@ -2,6 +2,9 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "mdorigin",
   "main": "dist/cloudflare/worker.mjs",
+  "routes": [
+    { "pattern": "mdorigin.holon.run", "custom_domain": true }
+  ],
   "compatibility_date": "2026-03-20",
   "compatibility_flags": ["nodejs_compat"]
 }

@@ -5,7 +5,7 @@
     { "code": "en", "default": true },
     { "code": "zh-CN", "label": "中文" }
   ],
-  "siteUrl": "https://mdorigin.jolestar.workers.dev",
+  "siteUrl": "https://mdorigin.holon.run",
   "favicon": "/favicon.svg",
   "socialImage": "/og.svg",
   "logo": {
@@ -15,11 +15,11 @@
   "showDate": true,
   "showSummary": true,
   "socialLinks": [
-    { "icon": "github", "label": "GitHub", "href": "https://github.com/jolestar/mdorigin" },
+    { "icon": "github", "label": "GitHub", "href": "https://github.com/holon-run/mdorigin" },
     { "icon": "npm", "label": "npm", "href": "https://www.npmjs.com/package/mdorigin" }
   ],
   "editLink": {
-    "baseUrl": "https://github.com/jolestar/mdorigin/edit/main/docs/site/"
+    "baseUrl": "https://github.com/holon-run/mdorigin/edit/main/docs/site/"
   },
   "showHomeIndex": false
 }
