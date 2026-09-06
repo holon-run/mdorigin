@@ -5,6 +5,11 @@
   "routes": [
     { "pattern": "mdorigin.holon.run", "custom_domain": true }
   ],
+  "assets": {
+    "directory": "dist/cloudflare/assets",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
   "compatibility_date": "2026-03-20",
   "compatibility_flags": ["nodejs_compat"]
 }
