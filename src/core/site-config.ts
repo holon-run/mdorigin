@@ -177,6 +177,14 @@ export interface LocaleConfigInput {
   default?: boolean;
   /** UI message overrides for this locale; win over global `messages`. */
   messages?: Partial<SiteMessages>;
+  /** Site title override for this locale; wins over the global `siteTitle`. */
+  siteTitle?: string;
+  /** Site description override for this locale; wins over the global `siteDescription`. */
+  siteDescription?: string;
+  /** Explicit top navigation for this locale; wins over the global `topNav`. */
+  topNav?: SiteNavItem[];
+  /** Explicit footer navigation for this locale; wins over the global `footerNav`. */
+  footerNav?: SiteNavItem[];
 }
 
 export interface ResolvedLocaleConfig {
@@ -187,6 +195,14 @@ export interface ResolvedLocaleConfig {
   /** Content base directory: '' (content root) for an unprefixed default locale, otherwise `{code}`. */
   contentBase: string;
   messages: Partial<SiteMessages>;
+  /** Site title override; undefined falls back to the global `siteTitle`. */
+  siteTitle?: string;
+  /** Site description override; undefined falls back to the global `siteDescription`. */
+  siteDescription?: string;
+  /** Explicit top navigation override; empty array falls back to the global `topNav`. */
+  topNav: SiteNavItem[];
+  /** Explicit footer navigation override; empty array falls back to the global `footerNav`. */
+  footerNav: SiteNavItem[];
 }
 
 export async function loadSiteConfig(
@@ -364,6 +380,10 @@ function resolveLocalesConfig(
     pathPrefix: string;
     isDefault: boolean;
     messages: Partial<SiteMessages>;
+    siteTitle?: string;
+    siteDescription?: string;
+    topNav: SiteNavItem[];
+    footerNav: SiteNavItem[];
   }> = [];
 
   for (const entry of input) {
@@ -406,6 +426,10 @@ function resolveLocalesConfig(
       pathPrefix,
       isDefault,
       messages,
+      siteTitle: normalizeOptionalSiteText(locale.siteTitle),
+      siteDescription: normalizeOptionalSiteText(locale.siteDescription),
+      topNav: normalizeTopNav(locale.topNav),
+      footerNav: normalizeTopNav(locale.footerNav),
     });
   }
 
@@ -589,6 +613,15 @@ function normalizeTopNav(value: unknown): SiteNavItem[] {
 
     return [];
   });
+}
+
+function normalizeOptionalSiteText(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
 }
 
 function normalizePositiveInteger(value: unknown, fallback: number): number {

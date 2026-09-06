@@ -148,7 +148,8 @@ function escapeHtml(value: string): string {
 - 译文缺失返回 404，不回退到其他语言
 - `/feed.xml` 只包含默认语言；其他语言各有 `/{code}/feed.xml`
 - 搜索结果在客户端按当前语言过滤
-- 语言目录不出现在自动推导的顶部导航与 `mdorigin build index` 受管索引块中
+- 自动推导的顶部导航按当前语言的内容根生成：`/zh-CN/` 页面的导航来自 `zh-CN/` 下的栏目，默认语言页面的导航来自根栏目（语言目录仍被排除）
+- 语言目录不出现在 `mdorigin build index` 受管索引块中
 
 各语言字段：
 
@@ -157,6 +158,8 @@ function escapeHtml(value: string): string {
 - `locales[].default`：必须恰好标记一个语言为 `true`
 - `locales[].pathPrefix`：`""`（仅默认语言，内容在根目录）或 `"/{code}"`；其他值会被拒绝
 - `locales[].messages`：该语言的文案覆盖，优先于全局 `messages`
+- `locales[].siteTitle` / `locales[].siteDescription`：该语言的站点标识，用于页头、`<title>` 与该语言的 feed；缺省时回退全局值
+- `locales[].topNav` / `locales[].footerNav`：该语言的显式导航，优先于全局 `topNav` / `footerNav`；留空或缺省则回退
 
 默认语言也可以显式设置 `pathPrefix`（如 `/en`）；此时其内容位于 `en/` 目录，`/` 重定向到 `/en/`。
 
@@ -167,11 +170,14 @@ function escapeHtml(value: string): string {
   - `title` -> `siteTitle`
   - `summary` -> `siteDescription`
 - 如果配置与根首页 frontmatter 都没有提供，`siteTitle` 回退为 `mdorigin`。
+- 多语言站点上，`locales[].siteTitle` / `locales[].siteDescription` 对该语言的页面、页头与 feed 生效并优先。
 
 ## 导航
 
 - 如果配置了 `topNav`，`mdorigin` 直接使用。
+- 多语言站点上，`locales[].topNav` 优先于全局 `topNav` 对该语言生效。
 - 如果 `topNav` 缺省或为空，`mdorigin` 从内容根一级子目录推导导航。
+- 配置了 `locales` 时，自动推导读取当前语言的内容根，并为链接加上语言路径前缀。
 - 自动推导的导航只包含被视为 `type: page` 的目录。
 - 被视为 `type: post` 的目录被排除在自动推导的顶部导航之外。
 - 当根首页已有顶部导航时，HTML 视图会从受管根索引块中隐藏重复的 `page` 条目，只保留剩余条目（如文章）。

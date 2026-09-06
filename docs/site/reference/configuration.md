@@ -148,7 +148,8 @@ With the config above:
 - missing translations return 404 instead of falling back to another language
 - `/feed.xml` serves the default locale; each additional locale gets `/{code}/feed.xml`
 - search results are filtered client-side to the current locale's content
-- locale directories are excluded from auto-derived top navigation and from `mdorigin build index` managed blocks
+- auto-derived top navigation is scoped to the current locale's content root: `/zh-CN/` pages get nav from `zh-CN/` sections, default-locale pages from the root sections (locale directories stay excluded)
+- locale directories are excluded from `mdorigin build index` managed blocks
 
 Per-locale fields:
 
@@ -157,10 +158,11 @@ Per-locale fields:
 - `locales[].default`: exactly one locale must be marked `true`
 - `locales[].pathPrefix`: `""` (default locale only, content at the root) or `"/{code}"`; other values are rejected
 - `locales[].messages`: per-locale message overrides that win over global `messages`
+- `locales[].siteTitle` / `locales[].siteDescription`: per-locale site identity used in the header, `<title>`, and locale feeds; fall back to the global values when omitted
+- `locales[].topNav` / `locales[].footerNav`: per-locale explicit navigation that wins over the global `topNav` / `footerNav`; empty or omitted falls back
 
 A default locale may also set an explicit `pathPrefix` such as `/en`; its content then lives under `en/` and `/` redirects to `/en/`.
 
-## Site Metadata
 ## Site Metadata
 
 - If `siteTitle` is configured, it is used directly.
@@ -168,11 +170,14 @@ A default locale may also set an explicit `pathPrefix` such as `/en`; its conten
   - `title` -> `siteTitle`
   - `summary` -> `siteDescription`
 - If neither config nor root homepage frontmatter provides a value, `siteTitle` falls back to `mdorigin`.
+- On multilingual sites, `locales[].siteTitle` / `locales[].siteDescription` win for that locale's pages, header, and locale feeds.
 
 ## Navigation
 
 - If `topNav` is configured, `mdorigin` uses it directly.
+- On multilingual sites, `locales[].topNav` wins for that locale before the global `topNav`.
 - If `topNav` is omitted or empty, `mdorigin` derives navigation from the content root's first-level subdirectories.
+- With `locales` configured, auto-derived navigation reads the current locale's content root and prefixes hrefs with the locale path prefix.
 - Auto-derived navigation only includes directories treated as `type: page`.
 - Directories treated as `type: post` are excluded from auto-derived top navigation.
 - When the root homepage already has top navigation, the HTML view hides repeated `page` entries from the managed root index block and keeps only the remaining entries, such as posts.

@@ -3,7 +3,11 @@
   "siteDescription": "Markdown-first publishing for humans and agents.",
   "locales": [
     { "code": "en", "default": true },
-    { "code": "zh-CN", "label": "中文" }
+    {
+      "code": "zh-CN",
+      "label": "中文",
+      "siteDescription": "Markdown 优先的发布引擎，同时服务人类与智能体。"
+    }
   ],
   "siteUrl": "https://mdorigin.holon.run",
   "favicon": "/favicon.svg",

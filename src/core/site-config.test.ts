@@ -417,6 +417,10 @@ test('loadSiteConfig resolves locales with default prefixes and content bases', 
       isDefault: true,
       contentBase: '',
       messages: {},
+      siteTitle: undefined,
+      siteDescription: undefined,
+      topNav: [],
+      footerNav: [],
     },
     {
       code: 'zh-CN',
@@ -425,8 +429,54 @@ test('loadSiteConfig resolves locales with default prefixes and content bases', 
       isDefault: false,
       contentBase: 'zh-CN',
       messages: { 'search.go': '找' },
+      siteTitle: undefined,
+      siteDescription: undefined,
+      topNav: [],
+      footerNav: [],
     },
   ]);
+});
+
+test('loadSiteConfig resolves locale site identity and navigation overrides', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locale-overrides-'));
+  await writeFile(
+    path.join(rootDir, 'mdorigin.config.json'),
+    JSON.stringify(
+      {
+        siteTitle: 'Base Site',
+        siteDescription: 'Base description',
+        topNav: [{ label: 'Global', href: '/global/' }],
+        locales: [
+          { code: 'en', default: true },
+          {
+            code: 'zh-CN',
+            label: '中文',
+            siteTitle: '  中文站  ',
+            siteDescription: '中文描述',
+            topNav: [{ label: '指南', href: '/zh-CN/guides/' }],
+            footerNav: [{ label: '关于', href: '/zh-CN/about/' }],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  const config = await loadSiteConfig({ rootDir });
+
+  const zhLocale = config.locales?.find((locale) => locale.code === 'zh-CN');
+  assert.equal(zhLocale?.siteTitle, '中文站');
+  assert.equal(zhLocale?.siteDescription, '中文描述');
+  assert.deepEqual(zhLocale?.topNav, [{ label: '指南', href: '/zh-CN/guides/' }]);
+  assert.deepEqual(zhLocale?.footerNav, [{ label: '关于', href: '/zh-CN/about/' }]);
+
+  const enLocale = config.locales?.find((locale) => locale.code === 'en');
+  assert.equal(enLocale?.siteTitle, undefined);
+  assert.equal(enLocale?.siteDescription, undefined);
+  assert.deepEqual(enLocale?.topNav, []);
+  assert.deepEqual(enLocale?.footerNav, []);
 });
 
 test('loadSiteConfig resolves an explicit default pathPrefix', async () => {

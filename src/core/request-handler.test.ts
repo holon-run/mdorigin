@@ -1566,6 +1566,8 @@ const MULTI_LOCALE_SITE_CONFIG = {
       isDefault: true,
       contentBase: '',
       messages: {},
+      topNav: [],
+      footerNav: [],
     },
     {
       code: 'zh-CN',
@@ -1574,6 +1576,8 @@ const MULTI_LOCALE_SITE_CONFIG = {
       isDefault: false,
       contentBase: 'zh-CN',
       messages: {},
+      topNav: [],
+      footerNav: [],
     },
   ],
 };
@@ -1758,6 +1762,87 @@ test('handleSiteRequest excludes locale directories from the auto top nav', asyn
   assert.doesNotMatch(body, /<li><a href="\/zh-CN\/">/);
 });
 
+test('handleSiteRequest generates locale-scoped auto top nav', async () => {
+  const store = createMultiLocaleStore();
+
+  const zhResponse = await handleSiteRequest(store, '/zh-CN/', {
+    draftMode: 'exclude',
+    siteConfig: MULTI_LOCALE_SITE_CONFIG,
+  });
+
+  assert.equal(zhResponse.status, 200);
+  const zhBody = String(zhResponse.body);
+  assert.match(zhBody, /<li><a href="\/zh-CN\/docs\/">文档<\/a><\/li>/);
+  assert.doesNotMatch(zhBody, /<li><a href="\/docs\/">/);
+});
+
+test('handleSiteRequest applies locale siteTitle and siteDescription overrides', async () => {
+  const store = createMultiLocaleStore();
+  const siteConfig = {
+    ...MULTI_LOCALE_SITE_CONFIG,
+    siteDescription: 'Global description',
+    locales: [
+      MULTI_LOCALE_SITE_CONFIG.locales[0],
+      {
+        ...MULTI_LOCALE_SITE_CONFIG.locales[1],
+        siteTitle: '中文测试站',
+        siteDescription: '中文站点描述',
+      },
+    ],
+  };
+
+  const zhResponse = await handleSiteRequest(store, '/zh-CN/', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  const zhBody = String(zhResponse.body);
+  assert.match(zhBody, /<title>首页 \| 中文测试站<\/title>/);
+  assert.match(zhBody, /<span>中文站点描述<\/span>/);
+
+  const enResponse = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  const enBody = String(enResponse.body);
+  assert.match(enBody, /<title>Home \| Test Site<\/title>/);
+  assert.match(enBody, /<span>Global description<\/span>/);
+
+  const zhFeed = await handleSiteRequest(store, '/zh-CN/feed.xml', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  assert.match(String(zhFeed.body), /<title>中文测试站<\/title>/);
+});
+
+test('handleSiteRequest prefers locale topNav overrides', async () => {
+  const store = createMultiLocaleStore();
+  const siteConfig = {
+    ...MULTI_LOCALE_SITE_CONFIG,
+    topNav: [{ label: 'Global', href: '/global/' }],
+    locales: [
+      MULTI_LOCALE_SITE_CONFIG.locales[0],
+      {
+        ...MULTI_LOCALE_SITE_CONFIG.locales[1],
+        topNav: [{ label: '中文导航', href: '/zh-CN/nav/' }],
+      },
+    ],
+  };
+
+  const enResponse = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  assert.match(String(enResponse.body), /<li><a href="\/global\/">Global<\/a><\/li>/);
+
+  const zhResponse = await handleSiteRequest(store, '/zh-CN/', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  const zhBody = String(zhResponse.body);
+  assert.match(zhBody, /<li><a href="\/zh-CN\/nav\/">中文导航<\/a><\/li>/);
+  assert.doesNotMatch(zhBody, /\/global\//);
+});
+
 test('handleSiteRequest redirects root to a prefixed default locale', async () => {
   const store = new MemoryContentStore([
     {
@@ -1783,6 +1868,8 @@ test('handleSiteRequest redirects root to a prefixed default locale', async () =
         isDefault: true,
         contentBase: 'en',
         messages: {},
+        topNav: [],
+        footerNav: [],
       },
       {
         code: 'zh',
@@ -1791,6 +1878,8 @@ test('handleSiteRequest redirects root to a prefixed default locale', async () =
         isDefault: false,
         contentBase: 'zh',
         messages: {},
+        topNav: [],
+        footerNav: [],
       },
     ],
   };

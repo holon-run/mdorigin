@@ -208,7 +208,7 @@ export async function handleSiteRequest(
   if (parsed.meta.draft === true && options.draftMode === 'exclude') {
     return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown, requestLocale);
   }
-  const navigation = await resolveTopNav(store, options.siteConfig);
+  const navigation = await resolveTopNav(store, options.siteConfig, requestLocale);
 
   const renderedBody =
     isRootHomeRequest(resolved.requestPath) && !options.siteConfig.showHomeIndex
@@ -306,6 +306,12 @@ function buildPageRenderModel(options: {
   renderedBodyHtml: string;
   parsed: Awaited<ReturnType<typeof parseMarkdownDocument>>;
   siteConfig: ResolvedSiteConfig;
+  /** Locale-effective site title; falls back to the global config value. */
+  siteTitle?: string;
+  /** Locale-effective site description; falls back to the global config value. */
+  siteDescription?: string;
+  /** Locale-effective footer navigation; falls back to the global config value. */
+  footerNav?: SiteNavItem[];
   topNav: SiteNavItem[];
   locale: string;
   languages: PageLanguage[];
@@ -318,8 +324,8 @@ function buildPageRenderModel(options: {
     sourcePath: options.sourcePath,
     locale: options.locale,
     languages: options.languages,
-    siteTitle: options.siteConfig.siteTitle,
-    siteDescription: options.siteConfig.siteDescription,
+    siteTitle: options.siteTitle ?? options.siteConfig.siteTitle,
+    siteDescription: options.siteDescription ?? options.siteConfig.siteDescription,
     siteUrl: options.siteConfig.siteUrl,
     favicon: options.siteConfig.favicon,
     socialImage: options.siteConfig.socialImage,
@@ -336,7 +342,7 @@ function buildPageRenderModel(options: {
     showSummary: options.siteConfig.showSummary,
     showDate: options.siteConfig.showDate,
     topNav: options.topNav,
-    footerNav: options.siteConfig.footerNav,
+    footerNav: options.footerNav ?? options.siteConfig.footerNav,
     footerText: options.siteConfig.footerText,
     socialLinks: options.siteConfig.socialLinks,
     editLink: options.siteConfig.editLink,
@@ -388,6 +394,9 @@ async function renderStructuredPage(options: {
     renderedBodyHtml: options.renderedParsed.html,
     parsed: options.parsed,
     siteConfig: options.siteConfig,
+    siteTitle: getEffectiveSiteTitle(options.siteConfig, localeConfig),
+    siteDescription: getEffectiveSiteDescription(options.siteConfig, localeConfig),
+    footerNav: getEffectiveFooterNav(options.siteConfig, localeConfig),
     topNav: options.topNav,
     listingEntries: options.listingEntries,
     searchEnabled: options.searchEnabled,
@@ -568,8 +577,8 @@ async function renderHtmlNotFound(
   varyOnAccept: boolean,
   requestLocale: ResolvedLocaleConfig | null,
 ): Promise<SiteResponse> {
-  const navigation = await resolveTopNav(store, options.siteConfig);
   const localeConfig = requestLocale;
+  const navigation = await resolveTopNav(store, options.siteConfig, localeConfig);
   const locale = localeConfig?.code ?? options.siteConfig.locale;
   const messages = getEffectiveLocaleMessages(options.siteConfig, localeConfig);
   const languages = await buildLanguageOptions(
@@ -595,8 +604,8 @@ async function renderHtmlNotFound(
       varyOnAccept,
     ),
     body: renderDocument({
-      siteTitle: options.siteConfig.siteTitle,
-      siteDescription: options.siteConfig.siteDescription,
+      siteTitle: getEffectiveSiteTitle(options.siteConfig, localeConfig),
+      siteDescription: getEffectiveSiteDescription(options.siteConfig, localeConfig),
       siteUrl: options.siteConfig.siteUrl,
       favicon: options.siteConfig.favicon,
       socialImage: options.siteConfig.socialImage,
@@ -609,7 +618,7 @@ async function renderHtmlNotFound(
       showSummary: false,
       showDate: false,
       topNav: navigation.items,
-      footerNav: options.siteConfig.footerNav,
+      footerNav: getEffectiveFooterNav(options.siteConfig, localeConfig),
       footerText: options.siteConfig.footerText,
       socialLinks: options.siteConfig.socialLinks,
       stylesheetContent: options.siteConfig.stylesheetContent,
@@ -656,6 +665,31 @@ function getEffectiveLocaleMessages(
     ...siteConfig.messages,
     ...localeConfig.messages,
   });
+}
+
+function getEffectiveSiteTitle(
+  siteConfig: ResolvedSiteConfig,
+  localeConfig: ResolvedLocaleConfig | null,
+): string {
+  return localeConfig?.siteTitle ?? siteConfig.siteTitle;
+}
+
+function getEffectiveSiteDescription(
+  siteConfig: ResolvedSiteConfig,
+  localeConfig: ResolvedLocaleConfig | null,
+): string | undefined {
+  return localeConfig?.siteDescription ?? siteConfig.siteDescription;
+}
+
+function getEffectiveFooterNav(
+  siteConfig: ResolvedSiteConfig,
+  localeConfig: ResolvedLocaleConfig | null,
+): SiteNavItem[] {
+  if (localeConfig !== null && (localeConfig.footerNav?.length ?? 0) > 0) {
+    return localeConfig.footerNav;
+  }
+
+  return siteConfig.footerNav;
 }
 
 function getFrontmatterLocale(meta: ParsedDocumentMeta): string | null {
@@ -895,9 +929,11 @@ async function renderRssFeed(
   );
   const limitedItems = items.slice(0, options.siteConfig.rss?.maxItems ?? 20);
   const rssFeedUrl = getRssFeedUrl(options.siteConfig.siteUrl, options.siteConfig, locale);
-  const title = options.siteConfig.rss?.title ?? options.siteConfig.siteTitle;
+  const title =
+    options.siteConfig.rss?.title ?? getEffectiveSiteTitle(options.siteConfig, locale);
   const description =
-    options.siteConfig.rss?.description ?? options.siteConfig.siteDescription;
+    options.siteConfig.rss?.description ??
+    getEffectiveSiteDescription(options.siteConfig, locale);
   const lastBuildDate = limitedItems[0]?.pubDate.toUTCString();
   const body = [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -1169,8 +1205,8 @@ async function renderDirectoryListing(
   }
 
   const visibleEntries = entries.filter(isVisibleDirectoryEntry);
-  const navigation = await resolveTopNav(store, siteConfig);
   const locale = requestLocale?.code ?? siteConfig.locale;
+  const navigation = await resolveTopNav(store, siteConfig, requestLocale);
   const messages = getEffectiveLocaleMessages(siteConfig, requestLocale);
   const languages = await buildLanguageOptions(
     store,
@@ -1196,8 +1232,8 @@ async function renderDirectoryListing(
       'content-type': 'text/html; charset=utf-8',
     },
     body: renderDocument({
-      siteTitle: siteConfig.siteTitle,
-      siteDescription: siteConfig.siteDescription,
+      siteTitle: getEffectiveSiteTitle(siteConfig, requestLocale),
+      siteDescription: getEffectiveSiteDescription(siteConfig, requestLocale),
       locale,
       messages,
       languages,
@@ -1209,7 +1245,7 @@ async function renderDirectoryListing(
       showSummary: false,
       showDate: false,
       topNav: navigation.items,
-      footerNav: siteConfig.footerNav,
+      footerNav: getEffectiveFooterNav(siteConfig, requestLocale),
       footerText: siteConfig.footerText,
       socialLinks: siteConfig.socialLinks,
       stylesheetContent: siteConfig.stylesheetContent,
@@ -1282,7 +1318,8 @@ async function tryRenderAlternateDirectoryIndex(
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       return notFound();
     }
-    const navigation = await resolveTopNav(store, options.siteConfig);
+    const requestLocale = matchRequestLocale(requestPath, options.siteConfig.locales);
+    const navigation = await resolveTopNav(store, options.siteConfig, requestLocale);
     const renderedBody =
       isRootHomeRequest(requestPath) && !options.siteConfig.showHomeIndex
         ? stripManagedIndexBlock(entry.text)
@@ -1323,7 +1360,7 @@ async function tryRenderAlternateDirectoryIndex(
       searchEnabled: options.searchApi !== undefined,
       plugins,
       store,
-      requestLocale: matchRequestLocale(requestPath, options.siteConfig.locales),
+      requestLocale,
       draftMode: options.draftMode,
     });
   }
@@ -1622,7 +1659,15 @@ function getEditLinkHref(
 async function resolveTopNav(
   store: ContentStore,
   siteConfig: ResolvedSiteConfig,
+  localeConfig: ResolvedLocaleConfig | null = null,
 ): Promise<{ items: SiteNavItem[]; autoGenerated: boolean }> {
+  if (localeConfig !== null && (localeConfig.topNav?.length ?? 0) > 0) {
+    return {
+      items: localeConfig.topNav,
+      autoGenerated: false,
+    };
+  }
+
   if (siteConfig.topNav.length > 0) {
     return {
       items: siteConfig.topNav,
@@ -1630,7 +1675,8 @@ async function resolveTopNav(
     };
   }
 
-  const rootEntries = await store.listDirectory('');
+  const contentRoot = localeConfig?.contentBase ?? '';
+  const rootEntries = await store.listDirectory(contentRoot);
   if (rootEntries === null) {
     return {
       items: [],
@@ -1648,7 +1694,7 @@ async function resolveTopNav(
   const orderedNavItems: Array<SiteNavItem & { order?: number }> = [];
 
   for (const entry of directories) {
-    if (localeDirectoryNames.has(entry.name)) {
+    if (contentRoot === '' && localeDirectoryNames.has(entry.name)) {
       continue;
     }
     const resolved = await resolveDirectoryNav(store, entry);
@@ -1658,7 +1704,7 @@ async function resolveTopNav(
 
     orderedNavItems.push({
       label: resolved.title,
-      href: `/${entry.name}/`,
+      href: `${localeConfig?.pathPrefix ?? ''}/${entry.name}/`,
       order: resolved.order,
     });
   }
