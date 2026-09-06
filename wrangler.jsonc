@@ -12,6 +12,9 @@
     "html_handling": "none",
     "not_found_handling": "none"
   },
+  "vars": {
+    "MDORIGIN_CACHE_DEBUG": "1"
+  },
   "compatibility_date": "2026-03-20",
   "compatibility_flags": ["nodejs_compat"]
 }

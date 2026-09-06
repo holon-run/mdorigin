@@ -4,9 +4,14 @@ import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createCloudflareWorker } from './cloudflare.js';
+import {
+  createCloudflareWorker,
+  withSearchResultCache,
+  type CreateCloudflareWorkerOptions,
+} from './cloudflare.js';
 import { getMediaTypeForPath } from '../core/content-store.js';
 import { buildSearchBundle } from '../search.js';
+import type { SearchHit } from '../search.js';
 
 test('cloudflare worker serves html and hides drafts', async () => {
   const worker = createCloudflareWorker({
@@ -88,9 +93,15 @@ test('cloudflare worker serves html and hides drafts', async () => {
   assert.match(await listingResponse.text(), /href="\/browse\/entry"/);
 });
 
-function createCacheTestWorker(overrides: { deployVersion?: string } = {}) {
+function createCacheTestWorker(
+  overrides: {
+    deployVersion?: string;
+    workerOptions?: CreateCloudflareWorkerOptions;
+  } = {},
+) {
+  const { workerOptions, ...manifestOverrides } = overrides;
   return createCloudflareWorker({
-    ...overrides,
+    ...manifestOverrides,
     siteConfig: {
       siteTitle: 'Worker Cache Test',
       siteUrl: 'https://example.com',
@@ -117,7 +128,7 @@ function createCacheTestWorker(overrides: { deployVersion?: string } = {}) {
         text: '# Hello',
       },
     ],
-  });
+  }, workerOptions);
 }
 
 test('cloudflare worker adds cache headers and serves 304 for deploy-versioned bundles', async () => {
@@ -534,4 +545,206 @@ test('cloudflare worker serves /api/search from assets-backed external search bu
   assert.equal(response.status, 200);
   const json = (await response.json()) as { hits: Array<{ title?: string }> };
   assert.equal(json.hits[0]?.title, 'Cloudflare Deployment');
+});
+
+test('cloudflare worker memoizes rendered responses per isolate variant', async () => {
+  let htmlRenders = 0;
+  const worker = createCacheTestWorker({
+    deployVersion: 'memo000000000001',
+    workerOptions: {
+      plugins: [
+        {
+          transformHtml(html) {
+            htmlRenders += 1;
+            return html;
+          },
+        },
+      ],
+    },
+  });
+
+  const first = await worker.fetch(new Request('https://example.com/'));
+  assert.equal(first.status, 200);
+  assert.equal(htmlRenders, 1);
+  const firstHtml = await first.text();
+
+  const second = await worker.fetch(new Request('https://example.com/'));
+  assert.equal(htmlRenders, 1);
+  assert.equal(await second.text(), firstHtml);
+  assert.equal(second.headers.get('etag'), '"memo000000000001"');
+  assert.equal(
+    second.headers.get('cache-control'),
+    'public, max-age=120, stale-while-revalidate=604800',
+  );
+
+  // The Accept-negotiated markdown variant is a separate cache entry.
+  const markdownFirst = await worker.fetch(
+    new Request('https://example.com/', {
+      headers: { accept: 'text/markdown' },
+    }),
+  );
+  assert.equal(markdownFirst.status, 200);
+  assert.match(
+    markdownFirst.headers.get('content-type') ?? '',
+    /^text\/markdown/,
+  );
+  const markdownBody = await markdownFirst.text();
+  assert.match(markdownBody, /# Hello/);
+
+  const markdownAgain = await worker.fetch(
+    new Request('https://example.com/', {
+      headers: { accept: 'text/html;q=0.5, text/markdown' },
+    }),
+  );
+  assert.equal(await markdownAgain.text(), markdownBody);
+
+  // Explicit .md paths use their own deterministic variant key.
+  const explicitMd = await worker.fetch(
+    new Request('https://example.com/index.md'),
+  );
+  assert.equal(explicitMd.status, 200);
+  const explicitMdAgain = await worker.fetch(
+    new Request('https://example.com/index.md'),
+  );
+  assert.equal(await explicitMdAgain.text(), await explicitMd.text());
+});
+
+test('cloudflare worker reports cache status and evicts isolate entries', async () => {
+  let htmlRenders = 0;
+  const worker = createCacheTestWorker({
+    deployVersion: 'lru00000000000001',
+    workerOptions: {
+      responseCacheLimit: 1,
+      plugins: [
+        {
+          transformHtml(html) {
+            htmlRenders += 1;
+            return html;
+          },
+        },
+      ],
+    },
+  });
+
+  const missResponse = await worker.fetch(new Request('https://example.com/'), {
+    MDORIGIN_CACHE_DEBUG: '1',
+  });
+  assert.equal(missResponse.headers.get('x-mdorigin-cache'), 'miss');
+  assert.equal(htmlRenders, 1);
+
+  const hitResponse = await worker.fetch(new Request('https://example.com/'), {
+    MDORIGIN_CACHE_DEBUG: '1',
+  });
+  assert.equal(hitResponse.headers.get('x-mdorigin-cache'), 'l1');
+  assert.equal(htmlRenders, 1);
+
+  // A distinct entry evicts the memoized home response (limit 1) and the
+  // next home request has to render again. Without the debug var the
+  // debug header stays absent.
+  await worker.fetch(new Request('https://example.com/index.md'));
+  const evictedResponse = await worker.fetch(new Request('https://example.com/'));
+  assert.equal(evictedResponse.headers.get('x-mdorigin-cache'), null);
+  assert.equal(htmlRenders, 2);
+});
+
+class MemoryCacheStub {
+  readonly entries = new Map<string, Response>();
+  readonly putKeys: string[] = [];
+
+  async match(request: Request): Promise<Response | undefined> {
+    const stored = this.entries.get(new URL(request.url).pathname);
+    return stored === undefined ? undefined : stored.clone();
+  }
+
+  async put(request: Request, response: Response): Promise<void> {
+    const key = new URL(request.url).pathname;
+    this.putKeys.push(key);
+    this.entries.set(key, response.clone());
+  }
+}
+
+test('cloudflare worker uses the injected cache as per-colo L2 storage', async () => {
+  const cacheStub = new MemoryCacheStub();
+  const worker = createCacheTestWorker({
+    deployVersion: 'l2test00000000001',
+    workerOptions: {
+      cache: cacheStub,
+      responseCacheLimit: 0,
+    },
+  });
+
+  const first = await worker.fetch(new Request('https://example.com/'));
+  assert.equal(first.status, 200);
+  await first.text();
+  assert.deepEqual(cacheStub.putKeys, ['/l2test00000000001/html/']);
+
+  const markdown = await worker.fetch(
+    new Request('https://example.com/', {
+      headers: { accept: 'text/markdown' },
+    }),
+  );
+  await markdown.text();
+  assert.deepEqual(cacheStub.putKeys, [
+    '/l2test00000000001/html/',
+    '/l2test00000000001/md/',
+  ]);
+
+  // Stored entries carry the L2 TTL while client responses keep browser TTL.
+  const stored = await cacheStub.match(
+    new Request('https://cache.mdorigin.internal/l2test00000000001/html/'),
+  );
+  assert.equal(
+    stored?.headers.get('cache-control'),
+    'public, max-age=86400',
+  );
+
+  // With the isolate cache disabled, the repeat request is served from L2.
+  const second = await worker.fetch(new Request('https://example.com/'));
+  assert.equal(second.status, 200);
+  assert.match(await second.text(), /<h1>Hello<\/h1>/);
+  assert.equal(
+    second.headers.get('cache-control'),
+    'public, max-age=120, stale-while-revalidate=604800',
+  );
+  assert.equal(second.headers.get('etag'), '"l2test00000000001"');
+});
+
+test('withSearchResultCache memoizes deterministic search results', async () => {
+  let calls = 0;
+  const hit: SearchHit = {
+    docId: 'index',
+    relativePath: 'index.md',
+    metadata: {},
+    score: 1,
+    bestMatch: {
+      chunkId: 0,
+      excerpt: 'Hello',
+      headingPath: [],
+      charStart: 0,
+      charEnd: 5,
+      score: 1,
+    },
+  };
+  const api = withSearchResultCache(
+    {
+      search: async (query, options) => {
+        calls += 1;
+        return [{ ...hit, docId: `${query}:${options?.topK ?? 0}` }];
+      },
+    },
+    2,
+  );
+
+  const first = await api.search('cloudflare', { topK: 5 });
+  const memoized = await api.search('cloudflare', { topK: 5 });
+  assert.equal(calls, 1);
+  assert.deepEqual(memoized, first);
+
+  await api.search('cloudflare', { topK: 10 });
+  assert.equal(calls, 2);
+
+  // LRU limit 2: the oldest key was evicted by the later entries.
+  await api.search('deploy', { topK: 5 });
+  await api.search('cloudflare', { topK: 5 });
+  assert.equal(calls, 4);
 });

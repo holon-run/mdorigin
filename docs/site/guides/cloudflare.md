@@ -83,3 +83,24 @@ Accept: text/markdown
 ```
 
 That lets agents fetch markdown directly from the site domain without adding `.md` to the URL.
+
+## Caching behavior
+
+Deployed sites are cached at several layers so repeated traffic does not re-render every request:
+
+- **Static assets** — generated Wrangler config serves assets directly from the Cloudflare asset CDN before the Worker runs.
+- **Browser and edge caches** — rendered responses carry a deploy-versioned `ETag`, `Cache-Control: public, max-age=120, stale-while-revalidate=604800` for browsers, and `CDN-Cache-Control: max-age=86400` for the Cloudflare edge on non-negotiated routes. Conditional requests with a matching `If-None-Match` receive `304` without rendering.
+- **Worker-internal caches** — within one isolate, rendered responses are memoized (default 100 entries), and each colo additionally uses the Cloudflare Cache API. Cache keys include the deploy version and the `html`/`md` representation, so Accept-negotiated routes never cross-contaminate and every cache entry is invalidated automatically on the next deploy.
+- **Search** — `/api/search` results are memoized per isolate because the search index is static within a deploy.
+
+To observe cache hits in responses, set a Worker variable:
+
+```jsonc
+{
+  "vars": {
+    "MDORIGIN_CACHE_DEBUG": "1"
+  }
+}
+```
+
+Cacheable responses then expose `x-mdorigin-cache: miss | l1 | l2` describing whether the response was rendered fresh or served from the isolate/colo cache.

@@ -83,3 +83,24 @@ Accept: text/markdown
 ```
 
 这让智能体可以直接从站点域名获取 markdown，而无需在 URL 上追加 `.md`。
+
+## 缓存行为
+
+部署后的站点在多个层级被缓存，重复流量不会让每个请求都重新渲染：
+
+- **静态资源** — 生成的 Wrangler 配置让资产在 Worker 运行之前由 Cloudflare 资产 CDN 直接返回。
+- **浏览器与边缘缓存** — 渲染响应带部署版本化的 `ETag`，浏览器侧 `Cache-Control: public, max-age=120, stale-while-revalidate=604800`，非协商路由另有 `CDN-Cache-Control: max-age=86400` 供 Cloudflare 边缘缓存。`If-None-Match` 命中的条件请求直接返回 `304`，不触发渲染。
+- **Worker 内缓存** — 同一 isolate 内渲染结果会被记忆化（默认 100 条），每个 colo 还会使用 Cloudflare Cache API。缓存键包含部署版本与 `html`/`md` 表示形式，Accept 协商路由不会互相污染，下一次部署会自动失效全部缓存条目。
+- **搜索** — 搜索索引在一次部署内是静态的，因此 `/api/search` 结果按 isolate 记忆化。
+
+要在响应中观察缓存命中情况，可设置 Worker 变量：
+
+```jsonc
+{
+  "vars": {
+    "MDORIGIN_CACHE_DEBUG": "1"
+  }
+}
+```
+
+之后可缓存响应会带 `x-mdorigin-cache: miss | l1 | l2` 头，标明响应是重新渲染还是来自 isolate/colo 缓存。

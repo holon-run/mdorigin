@@ -9,12 +9,15 @@ import type { MdoPlugin } from '../core/extensions.js';
 import { handleSiteRequest } from '../core/request-handler.js';
 import type { SiteResponse } from '../core/request-handler.js';
 import { resolveRequest } from '../core/router.js';
+import type { ResolvedRequest } from '../core/router.js';
 import type { ResolvedSiteConfig } from '../core/site-config.js';
 import {
   createSearchApiFromBundle,
   createSearchApiFromExternalBundle,
   type ExternalSearchBundleEntry,
+  type SearchApi,
   type SearchBundleEntry,
+  type SearchHit,
 } from '../search.js';
 
 export interface TextCloudflareManifestEntry {
@@ -92,16 +95,39 @@ export interface ExportedHandlerLike {
   fetch(
     request: Request,
     env?: CloudflareWorkerEnv,
-    ctx?: unknown,
+    ctx?: CloudflareWorkerExecutionContextLike,
   ): Promise<Response>;
+}
+
+export interface CloudflareWorkerExecutionContextLike {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+export interface CloudflareCacheLike {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
 }
 
 export interface CreateCloudflareWorkerOptions {
   plugins?: MdoPlugin[];
+  /**
+   * Per-colo L2 cache. Defaults to the runtime `caches.default` when the
+   * runtime exposes one. Pass `null` to disable L2 caching.
+   */
+  cache?: CloudflareCacheLike | null;
+  /** Maximum isolate-memoized rendered responses. Defaults to 100. */
+  responseCacheLimit?: number;
+  /** Maximum isolate-memoized search results. Defaults to 100. */
+  searchCacheLimit?: number;
 }
 
 const BROWSER_CACHE_CONTROL = 'public, max-age=120, stale-while-revalidate=604800';
 const CDN_CACHE_CONTROL = 'max-age=86400';
+const L2_CACHE_CONTROL = 'public, max-age=86400';
+const L2_CACHE_KEY_ORIGIN = 'https://cache.mdorigin.internal';
+const CACHE_DEBUG_HEADER = 'x-mdorigin-cache';
+const RESPONSE_CACHE_LIMIT_DEFAULT = 100;
+const SEARCH_CACHE_LIMIT_DEFAULT = 100;
 const CACHEABLE_CONTENT_TYPE_PREFIXES = [
   'text/html',
   'text/markdown',
@@ -142,9 +168,18 @@ export function createCloudflareWorker(
       };
     }),
   );
+  const responseCache = new LruCache<CachedResponse>(
+    options.responseCacheLimit ?? RESPONSE_CACHE_LIMIT_DEFAULT,
+  );
+  const searchCacheLimit = options.searchCacheLimit ?? SEARCH_CACHE_LIMIT_DEFAULT;
+  const cache =
+    options.cache === undefined ? resolveDefaultCache() : options.cache ?? undefined;
   const inlineSearchApi =
     manifest.searchEntries && manifest.searchEntries.length > 0
-      ? createSearchApiFromBundle(manifest.searchEntries, manifest.siteConfig?.search)
+      ? withSearchResultCache(
+          createSearchApiFromBundle(manifest.searchEntries, manifest.siteConfig?.search),
+          searchCacheLimit,
+        )
       : undefined;
   const externalSearchApis = new WeakMap<
     CloudflareWorkerEnv,
@@ -155,21 +190,28 @@ export function createCloudflareWorker(
     | undefined;
 
   return {
-    async fetch(request: Request, env?: CloudflareWorkerEnv): Promise<Response> {
+    async fetch(
+      request: Request,
+      env?: CloudflareWorkerEnv,
+      ctx?: CloudflareWorkerExecutionContextLike,
+    ): Promise<Response> {
       const url = new URL(request.url);
       const externalSearchApi = getExternalSearchApi(
         manifest,
         env,
         externalSearchApis,
         defaultExternalSearchApi,
+        searchCacheLimit,
       );
       if (env === undefined && externalSearchApi !== undefined) {
         defaultExternalSearchApi = externalSearchApi;
       }
+      const resolvedRequest = resolveRequest(url.pathname);
       const directBinaryResponse = await tryServeExternalBinary(
         manifest,
         request,
         env,
+        resolvedRequest,
       );
       if (directBinaryResponse !== null) {
         return directBinaryResponse;
@@ -190,6 +232,32 @@ export function createCloudflareWorker(
             'cache-control': BROWSER_CACHE_CONTROL,
           },
         });
+      }
+      const cacheDebugEnabled = isCacheDebugEnabled(env);
+      const responseCacheKey =
+        manifest.deployVersion !== undefined && isCacheableRequest(request, url)
+          ? buildResponseCacheKey(
+              manifest.deployVersion,
+              resolvedRequest,
+              request.headers.get('accept'),
+              url.pathname,
+            )
+          : undefined;
+      if (responseCacheKey !== undefined) {
+        const memoized = responseCache.get(responseCacheKey);
+        if (memoized !== undefined) {
+          return toWorkerResponse(memoized, cacheDebugEnabled ? 'l1' : undefined);
+        }
+        if (cache !== undefined) {
+          const cached = await cache.match(toL2CacheRequest(responseCacheKey));
+          if (cached !== undefined) {
+            const entry = await cachedResponseFromL2(cached);
+            if (entry !== null) {
+              responseCache.set(responseCacheKey, entry);
+              return toWorkerResponse(entry, cacheDebugEnabled ? 'l2' : undefined);
+            }
+          }
+        }
       }
       const store = new CloudflareManifestContentStore(manifest, storeIndex, request, env);
       const siteResponse = await handleSiteRequest(store, url.pathname, {
@@ -233,17 +301,33 @@ export function createCloudflareWorker(
           headers.set(name, value);
         }
       }
-      const body =
-        siteResponse.body instanceof Uint8Array
-          ? new Blob([Uint8Array.from(siteResponse.body)], {
-              type: siteResponse.headers['content-type'],
-            })
-          : siteResponse.body ?? '';
-
-      return new Response(body, {
+      const rendered: CachedResponse = {
         status: siteResponse.status,
-        headers,
-      });
+        headers: Object.fromEntries(headers.entries()),
+        body: siteResponse.body ?? '',
+      };
+      if (
+        responseCacheKey !== undefined &&
+        siteResponse.status === 200 &&
+        isCacheableContentType(siteResponse.headers['content-type'])
+      ) {
+        responseCache.set(responseCacheKey, rendered);
+        if (cache !== undefined) {
+          const putPromise = cache.put(
+            toL2CacheRequest(responseCacheKey),
+            toL2CacheResponse(rendered),
+          );
+          if (ctx?.waitUntil !== undefined) {
+            ctx.waitUntil(putPromise);
+          } else {
+            await putPromise;
+          }
+        }
+      }
+      return toWorkerResponse(
+        rendered,
+        cacheDebugEnabled && responseCacheKey !== undefined ? 'miss' : undefined,
+      );
     },
   };
 }
@@ -316,11 +400,184 @@ function collectResponseCacheHeaders(
   return cacheHeaders;
 }
 
+interface CachedResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: Uint8Array | string;
+}
+
+class LruCache<T> {
+  private readonly entries = new Map<string, T>();
+
+  constructor(private readonly limit: number) {}
+
+  get(key: string): T | undefined {
+    const cached = this.entries.get(key);
+    if (cached === undefined) {
+      return undefined;
+    }
+    this.entries.delete(key);
+    this.entries.set(key, cached);
+    return cached;
+  }
+
+  set(key: string, value: T): void {
+    if (this.limit <= 0) {
+      return;
+    }
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    while (this.entries.size > this.limit) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.entries.delete(oldest);
+    }
+  }
+}
+
+/**
+ * Memoizes deterministic search results per isolate. The search index is
+ * static within one deploy, so identical (query, options) calls return the
+ * same hits and repeated queries skip retrieval entirely.
+ */
+export function withSearchResultCache(api: SearchApi, limit: number): SearchApi {
+  if (limit <= 0) {
+    return api;
+  }
+  const cache = new LruCache<SearchHit[]>(limit);
+  return {
+    async search(query, options) {
+      const key = JSON.stringify([query, options ?? null]);
+      const cached = cache.get(key);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const hits = await api.search(query, options);
+      cache.set(key, hits);
+      return hits;
+    },
+  };
+}
+
+function resolveDefaultCache(): CloudflareCacheLike | undefined {
+  const cachesRef = (globalThis as { caches?: { default?: CloudflareCacheLike } })
+    .caches;
+  const defaultCache = cachesRef?.default;
+  if (
+    defaultCache === undefined ||
+    typeof defaultCache.match !== 'function' ||
+    typeof defaultCache.put !== 'function'
+  ) {
+    return undefined;
+  }
+  return defaultCache;
+}
+
+function isCacheDebugEnabled(env: CloudflareWorkerEnv | undefined): boolean {
+  const value = env?.MDORIGIN_CACHE_DEBUG;
+  return value === '1' || value === 'true';
+}
+
+function buildResponseCacheKey(
+  deployVersion: string,
+  resolved: ResolvedRequest,
+  acceptHeader: string | null,
+  pathname: string,
+): string {
+  const variant = resolveCacheVariant(resolved, acceptHeader);
+  return `${deployVersion}/${variant}${pathname}`;
+}
+
+function resolveCacheVariant(
+  resolved: ResolvedRequest,
+  acceptHeader: string | null,
+): 'md' | 'html' {
+  if (resolved.kind === 'markdown') {
+    return 'md';
+  }
+  if (
+    resolved.kind === 'html' &&
+    !resolved.requestPath.endsWith('.html') &&
+    acceptsMarkdown(acceptHeader)
+  ) {
+    return 'md';
+  }
+  return 'html';
+}
+
+function acceptsMarkdown(acceptHeader: string | null): boolean {
+  if (!acceptHeader) {
+    return false;
+  }
+  return acceptHeader
+    .split(',')
+    .map((part) => part.split(';', 1)[0]?.trim().toLowerCase())
+    .includes('text/markdown');
+}
+
+function toL2CacheRequest(cacheKey: string): Request {
+  return new Request(`${L2_CACHE_KEY_ORIGIN}/${cacheKey}`);
+}
+
+function toL2CacheResponse(entry: CachedResponse): Response {
+  const headers = new Headers(entry.headers);
+  headers.set('cache-control', L2_CACHE_CONTROL);
+  return new Response(toResponseBody(entry), {
+    status: entry.status,
+    headers,
+  });
+}
+
+async function cachedResponseFromL2(
+  cached: Response,
+): Promise<CachedResponse | null> {
+  if (cached.status !== 200) {
+    return null;
+  }
+  const headers = new Headers(cached.headers);
+  headers.set('cache-control', BROWSER_CACHE_CONTROL);
+  const headerEntries: Record<string, string> = {};
+  headers.forEach((value, name) => {
+    headerEntries[name] = value;
+  });
+  return {
+    status: cached.status,
+    headers: headerEntries,
+    body: new Uint8Array(await cached.arrayBuffer()),
+  };
+}
+
+function toWorkerResponse(
+  entry: CachedResponse,
+  cacheStatus: string | undefined,
+): Response {
+  const headers = new Headers(entry.headers);
+  if (cacheStatus !== undefined) {
+    headers.set(CACHE_DEBUG_HEADER, cacheStatus);
+  }
+  return new Response(toResponseBody(entry), {
+    status: entry.status,
+    headers,
+  });
+}
+
+function toResponseBody(entry: CachedResponse): Blob | string {
+  if (entry.body instanceof Uint8Array) {
+    return new Blob([Uint8Array.from(entry.body)], {
+      type: entry.headers['content-type'],
+    });
+  }
+  return entry.body;
+}
+
 function getExternalSearchApi(
   manifest: CloudflareManifest,
   env: CloudflareWorkerEnv | undefined,
   cache: WeakMap<CloudflareWorkerEnv, ReturnType<typeof createSearchApiFromExternalBundle>>,
   defaultApi: ReturnType<typeof createSearchApiFromExternalBundle> | undefined,
+  searchCacheLimit: number,
 ): ReturnType<typeof createSearchApiFromExternalBundle> | undefined {
   if (!manifest.externalSearchEntries || manifest.externalSearchEntries.length === 0) {
     return undefined;
@@ -329,11 +586,14 @@ function getExternalSearchApi(
   if (!env) {
     return (
       defaultApi ??
-      createSearchApiFromExternalBundle(
-        manifest.externalSearchEntries,
-        async (entry) =>
-          loadExternalSearchEntryResponse(entry, undefined, manifest.runtime?.r2Binding),
-        manifest.siteConfig?.search,
+      withSearchResultCache(
+        createSearchApiFromExternalBundle(
+          manifest.externalSearchEntries,
+          async (entry) =>
+            loadExternalSearchEntryResponse(entry, undefined, manifest.runtime?.r2Binding),
+          manifest.siteConfig?.search,
+        ),
+        searchCacheLimit,
       )
     );
   }
@@ -343,11 +603,14 @@ function getExternalSearchApi(
     return cached;
   }
 
-  const searchApi = createSearchApiFromExternalBundle(
-    manifest.externalSearchEntries,
-    async (entry) =>
-      loadExternalSearchEntryResponse(entry, env, manifest.runtime?.r2Binding),
-    manifest.siteConfig?.search,
+  const searchApi = withSearchResultCache(
+    createSearchApiFromExternalBundle(
+      manifest.externalSearchEntries,
+      async (entry) =>
+        loadExternalSearchEntryResponse(entry, env, manifest.runtime?.r2Binding),
+      manifest.siteConfig?.search,
+    ),
+    searchCacheLimit,
   );
   cache.set(env, searchApi);
   return searchApi;
@@ -439,8 +702,8 @@ async function tryServeExternalBinary(
   manifest: CloudflareManifest,
   request: Request,
   env: CloudflareWorkerEnv | undefined,
+  resolved: ResolvedRequest,
 ): Promise<Response | null> {
-  const resolved = resolveRequest(new URL(request.url).pathname);
   if (resolved.kind !== 'asset' || !resolved.sourcePath) {
     return null;
   }
