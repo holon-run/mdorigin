@@ -134,6 +134,48 @@ test('handleSiteRequest renders html and preserves markdown', async () => {
   assert.match(String(defaultHtmlResponse.body), /href="\.\.\/"/);
 });
 
+test('handleSiteRequest varies directory index html on Accept', async () => {
+  const store = new MemoryContentStore([
+    {
+      path: 'README.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '# Home',
+    },
+    {
+      path: 'guides/README.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: '# Guides',
+    },
+  ]);
+
+  const htmlResponse = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig: TEST_SITE_CONFIG,
+  });
+  assert.equal(htmlResponse.status, 200);
+  assert.equal(htmlResponse.headers['vary'], 'Accept');
+
+  const sectionHtmlResponse = await handleSiteRequest(store, '/guides/', {
+    draftMode: 'exclude',
+    siteConfig: TEST_SITE_CONFIG,
+  });
+  assert.equal(sectionHtmlResponse.status, 200);
+  assert.equal(sectionHtmlResponse.headers['vary'], 'Accept');
+
+  const markdownResponse = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig: TEST_SITE_CONFIG,
+    acceptHeader: 'text/markdown',
+  });
+  assert.equal(markdownResponse.status, 200);
+  assert.match(
+    String(markdownResponse.headers['content-type'] ?? ''),
+    /text\/markdown/,
+  );
+});
+
 test('handleSiteRequest preserves trusted inline html media tags in rendered pages', async () => {
   const store = new MemoryContentStore([
     {

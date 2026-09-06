@@ -210,6 +210,13 @@ export async function writeCloudflareBundle(
     assetsMaxBytes,
     r2Binding,
   });
+  // Deploy version = hash of the manifest payload (all entries, config, and
+  // search bundle references). Workers use it as a strong ETag so content
+  // edits produce a new version and invalidate every cached response.
+  manifest.deployVersion = createHash('sha256')
+    .update(JSON.stringify(manifest))
+    .digest('hex')
+    .slice(0, 16);
   const packageImport = options.packageImport ?? 'mdorigin/cloudflare-runtime';
   const workerFile = path.join(outDir, 'worker.mjs');
   const bundleFile = path.join(outDir, BUNDLE_FILE_NAME);
@@ -311,7 +318,9 @@ export async function initCloudflareProject(
           '  "assets": {',
           `    "directory": ${JSON.stringify(toPosixPath(path.relative(projectDir, path.join(path.dirname(options.workerEntry), bundleMetadata.assetsDir))))},`,
           `    "binding": ${JSON.stringify(DEFAULT_ASSETS_BINDING)},`,
-          '    "run_worker_first": true',
+          '    "run_worker_first": false,',
+          '    "html_handling": "none",',
+          '    "not_found_handling": "none"',
           '  }',
         ].join('\n')
       : '',

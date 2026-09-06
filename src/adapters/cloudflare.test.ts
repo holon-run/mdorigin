@@ -88,6 +88,114 @@ test('cloudflare worker serves html and hides drafts', async () => {
   assert.match(await listingResponse.text(), /href="\/browse\/entry"/);
 });
 
+function createCacheTestWorker(overrides: { deployVersion?: string } = {}) {
+  return createCloudflareWorker({
+    ...overrides,
+    siteConfig: {
+      siteTitle: 'Worker Cache Test',
+      siteUrl: 'https://example.com',
+      favicon: undefined,
+      logo: undefined,
+      showDate: true,
+      showSummary: true,
+      topNav: [],
+      footerNav: [],
+      footerText: undefined,
+      socialLinks: [],
+      editLink: undefined,
+      showHomeIndex: true,
+      listingInitialPostCount: 10,
+      listingLoadMoreStep: 10,
+      siteTitleConfigured: true,
+      siteDescriptionConfigured: false,
+    },
+    entries: [
+      {
+        path: 'index.md',
+        kind: 'text',
+        mediaType: 'text/markdown; charset=utf-8',
+        text: '# Hello',
+      },
+    ],
+  });
+}
+
+test('cloudflare worker adds cache headers and serves 304 for deploy-versioned bundles', async () => {
+  const worker = createCacheTestWorker({ deployVersion: '0123456789abcdef' });
+  const etag = '"0123456789abcdef"';
+
+  const htmlResponse = await worker.fetch(new Request('https://example.com/'));
+  assert.equal(htmlResponse.status, 200);
+  assert.equal(htmlResponse.headers.get('etag'), etag);
+  assert.equal(
+    htmlResponse.headers.get('cache-control'),
+    'public, max-age=120, stale-while-revalidate=604800',
+  );
+  assert.match(htmlResponse.headers.get('vary') ?? '', /^Accept$/);
+  // Extensionless routes vary on Accept and stay out of the CDN cache.
+  assert.equal(htmlResponse.headers.get('cdn-cache-control'), null);
+
+  const notModifiedResponse = await worker.fetch(
+    new Request('https://example.com/', {
+      headers: { 'if-none-match': etag },
+    }),
+  );
+  assert.equal(notModifiedResponse.status, 304);
+  assert.equal(notModifiedResponse.headers.get('etag'), etag);
+  assert.equal(await notModifiedResponse.text(), '');
+
+  const weakTagResponse = await worker.fetch(
+    new Request('https://example.com/', {
+      headers: { 'if-none-match': `W/${etag}` },
+    }),
+  );
+  assert.equal(weakTagResponse.status, 304);
+
+  const staleResponse = await worker.fetch(
+    new Request('https://example.com/', {
+      headers: { 'if-none-match': '"stale-version"' },
+    }),
+  );
+  assert.equal(staleResponse.status, 200);
+  assert.match(await staleResponse.text(), /<h1>Hello<\/h1>/);
+
+  // Explicit .md paths have one deterministic variant and may enter the CDN cache.
+  const markdownResponse = await worker.fetch(
+    new Request('https://example.com/index.md'),
+  );
+  assert.equal(markdownResponse.status, 200);
+  assert.equal(markdownResponse.headers.get('cdn-cache-control'), 'max-age=86400');
+  assert.equal(markdownResponse.headers.get('vary'), null);
+
+  // Query-dependent responses stay uncached.
+  const queryResponse = await worker.fetch(new Request('https://example.com/?q=x'));
+  assert.equal(queryResponse.headers.get('etag'), null);
+  assert.equal(queryResponse.headers.get('cdn-cache-control'), null);
+
+  // API routes stay uncached.
+  const apiResponse = await worker.fetch(
+    new Request('https://example.com/api/openapi.json'),
+  );
+  assert.equal(apiResponse.status, 200);
+  assert.equal(apiResponse.headers.get('etag'), null);
+  assert.equal(apiResponse.headers.get('cdn-cache-control'), null);
+
+  const sitemapResponse = await worker.fetch(
+    new Request('https://example.com/sitemap.xml'),
+  );
+  assert.equal(sitemapResponse.status, 200);
+  assert.equal(sitemapResponse.headers.get('cdn-cache-control'), 'max-age=86400');
+});
+
+test('cloudflare worker omits cache headers when the bundle has no deploy version', async () => {
+  const worker = createCacheTestWorker();
+  const response = await worker.fetch(new Request('https://example.com/'));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('etag'), null);
+  assert.equal(response.headers.get('cache-control'), null);
+  assert.equal(response.headers.get('cdn-cache-control'), null);
+});
+
 test('cloudflare worker supports page render plugins', async () => {
   const worker = createCloudflareWorker(
     {

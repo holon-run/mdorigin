@@ -7,6 +7,7 @@ import type {
 import { MemoryContentStore } from '../core/content-store.js';
 import type { MdoPlugin } from '../core/extensions.js';
 import { handleSiteRequest } from '../core/request-handler.js';
+import type { SiteResponse } from '../core/request-handler.js';
 import { resolveRequest } from '../core/router.js';
 import type { ResolvedSiteConfig } from '../core/site-config.js';
 import {
@@ -55,6 +56,13 @@ export interface CloudflareManifest {
   searchEntries?: SearchBundleEntry[];
   externalSearchEntries?: ExternalSearchBundleEntry[];
   runtime?: CloudflareBundleRuntimeConfig;
+  /**
+   * Build-time deploy version. Bundle content is immutable within one deploy,
+   * so this value doubles as a strong ETag and lets If-None-Match matches skip
+   * rendering entirely. A new deploy produces a new version and invalidates
+   * every cached response.
+   */
+  deployVersion?: string;
 }
 
 export interface CloudflareAssetsBindingLike {
@@ -91,6 +99,17 @@ export interface ExportedHandlerLike {
 export interface CreateCloudflareWorkerOptions {
   plugins?: MdoPlugin[];
 }
+
+const BROWSER_CACHE_CONTROL = 'public, max-age=120, stale-while-revalidate=604800';
+const CDN_CACHE_CONTROL = 'max-age=86400';
+const CACHEABLE_CONTENT_TYPE_PREFIXES = [
+  'text/html',
+  'text/markdown',
+  'application/xml',
+  'text/xml',
+  'application/rss+xml',
+  'application/atom+xml',
+] as const;
 
 export function createCloudflareWorker(
   manifest: CloudflareManifest,
@@ -155,6 +174,23 @@ export function createCloudflareWorker(
       if (directBinaryResponse !== null) {
         return directBinaryResponse;
       }
+      const etag =
+        manifest.deployVersion === undefined
+          ? undefined
+          : `"${manifest.deployVersion}"`;
+      if (
+        etag !== undefined &&
+        isCacheableRequest(request, url) &&
+        requestMatchesEtag(request.headers.get('if-none-match'), etag)
+      ) {
+        return new Response(null, {
+          status: 304,
+          headers: {
+            etag,
+            'cache-control': BROWSER_CACHE_CONTROL,
+          },
+        });
+      }
       const store = new CloudflareManifestContentStore(manifest, storeIndex, request, env);
       const siteResponse = await handleSiteRequest(store, url.pathname, {
         draftMode: 'exclude',
@@ -186,6 +222,17 @@ export function createCloudflareWorker(
       });
 
       const headers = new Headers(siteResponse.headers);
+      const cacheHeaders = collectResponseCacheHeaders(
+        siteResponse,
+        request,
+        url,
+        etag,
+      );
+      if (cacheHeaders !== undefined) {
+        for (const [name, value] of Object.entries(cacheHeaders)) {
+          headers.set(name, value);
+        }
+      }
       const body =
         siteResponse.body instanceof Uint8Array
           ? new Blob([Uint8Array.from(siteResponse.body)], {
@@ -199,6 +246,74 @@ export function createCloudflareWorker(
       });
     },
   };
+}
+
+function isCacheableRequest(request: Request, url: URL): boolean {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return false;
+  }
+  if (url.search !== '') {
+    return false;
+  }
+  return url.pathname !== '/api' && !url.pathname.startsWith('/api/');
+}
+
+function isCacheableContentType(contentType: string | undefined): boolean {
+  if (contentType === undefined) {
+    return false;
+  }
+  const mediaType = contentType.split(';', 1)[0]?.trim().toLowerCase();
+  if (mediaType === undefined || mediaType === '') {
+    return false;
+  }
+  return CACHEABLE_CONTENT_TYPE_PREFIXES.some(
+    (prefix) => mediaType === prefix || mediaType.startsWith(`${prefix}/`),
+  );
+}
+
+function requestMatchesEtag(ifNoneMatch: string | null, etag: string): boolean {
+  if (ifNoneMatch === null || ifNoneMatch.trim() === '') {
+    return false;
+  }
+  if (ifNoneMatch.trim() === '*') {
+    return true;
+  }
+  return ifNoneMatch.split(',').some((candidate) => {
+    const trimmed = candidate.trim();
+    const value = trimmed.startsWith('W/') ? trimmed.slice(2) : trimmed;
+    return value === etag;
+  });
+}
+
+function collectResponseCacheHeaders(
+  siteResponse: SiteResponse,
+  request: Request,
+  url: URL,
+  etag: string | undefined,
+): Record<string, string> | undefined {
+  if (
+    etag === undefined ||
+    siteResponse.status !== 200 ||
+    !isCacheableRequest(request, url) ||
+    !isCacheableContentType(siteResponse.headers['content-type'])
+  ) {
+    return undefined;
+  }
+  const cacheHeaders: Record<string, string> = {
+    etag,
+    'cache-control': BROWSER_CACHE_CONTROL,
+  };
+  const varyValues =
+    siteResponse.headers['vary']
+      ?.split(',')
+      .map((value) => value.trim().toLowerCase()) ?? [];
+  // The Cloudflare edge cache does not vary on Accept, so extensionless
+  // content-negotiated routes must stay out of the CDN cache. They still get
+  // ETag/304 handling and browser revalidation.
+  if (!varyValues.includes('accept')) {
+    cacheHeaders['cdn-cache-control'] = CDN_CACHE_CONTROL;
+  }
+  return cacheHeaders;
 }
 
 function getExternalSearchApi(

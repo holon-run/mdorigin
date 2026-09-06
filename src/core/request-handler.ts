@@ -1362,6 +1362,10 @@ async function tryRenderAlternateDirectoryIndex(
       store,
       requestLocale,
       draftMode: options.draftMode,
+      // This branch only renders extensionless directory routes, which serve
+      // a raw markdown variant through Accept negotiation; the HTML variant
+      // must therefore declare Vary: Accept like every other negotiated route.
+      varyOnAccept: true,
     });
   }
 
