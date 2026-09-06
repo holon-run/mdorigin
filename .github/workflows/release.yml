@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   publish:
-    if: github.repository == 'jolestar/mdorigin'
+    if: github.repository == 'holon-run/mdorigin'
     runs-on: ubuntu-latest
 
     steps:

@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.repository == 'jolestar/mdorigin'
+    if: github.repository == 'holon-run/mdorigin'
     runs-on: ubuntu-latest
 
     steps:
