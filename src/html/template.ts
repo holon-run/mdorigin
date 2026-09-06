@@ -129,16 +129,28 @@ export function renderDocument(options: RenderDocumentOptions) {
         '</div>',
       ].join('')
     : '';
+  const currentLanguage =
+    options.languages?.find((language) => language.current) ??
+    options.languages?.[0];
   const languagesBlock =
-    options.languages && options.languages.length > 1
-      ? `<nav class="site-languages" aria-label="${escapeHtml(messages['languages.ariaLabel'])}"><ul>${options.languages
-          .map(
-            (language) =>
-              `<li><a href="${escapeHtml(language.href)}" hreflang="${escapeHtml(language.code)}"${
-                language.current ? ' aria-current="page"' : ''
-              }>${escapeHtml(language.label)}</a></li>`,
-          )
-          .join('')}</ul></nav>`
+    options.languages && options.languages.length > 1 && currentLanguage
+      ? [
+          `<nav class="site-languages" aria-label="${escapeHtml(messages['languages.ariaLabel'])}">`,
+          '<details class="site-languages__details" data-site-languages>',
+          `<summary class="site-languages__toggle"><span class="site-languages__label">${escapeHtml(
+            currentLanguage.label,
+          )}</span><svg class="site-languages__chevron" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false"><path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></summary>`,
+          `<ul class="site-languages__panel">${options.languages
+            .map(
+              (language) =>
+                `<li><a href="${escapeHtml(language.href)}" hreflang="${escapeHtml(language.code)}"${
+                  language.current ? ' aria-current="page"' : ''
+                }>${escapeHtml(language.label)}</a></li>`,
+            )
+            .join('')}</ul>`,
+          '</details>',
+          '</nav>',
+        ].join('')
       : '';
   const footerNavBlock =
     options.footerNav && options.footerNav.length > 0
@@ -204,6 +216,8 @@ export function renderDocument(options: RenderDocumentOptions) {
   const searchScript = options.searchEnabled
     ? renderSearchScript(messages, options.searchLocaleFilter)
     : '';
+  const languagesScript =
+    options.headerHtml || !languagesBlock ? '' : renderLanguagesScript();
 
   const headerBlock =
     options.headerHtml ??
@@ -233,6 +247,7 @@ export function renderDocument(options: RenderDocumentOptions) {
     '</main>',
     renderedFooterBlock,
     searchScript,
+    languagesScript,
     '</body>',
     '</html>',
   ].join('');
@@ -447,6 +462,36 @@ function renderListingLoadMoreScript(messages: SiteMessages): string {
   button.addEventListener('click', () => {
     void loadMore();
   });
+})();
+</script>`;
+}
+
+function renderLanguagesScript(): string {
+  return `<script>
+(function () {
+  const menus = Array.from(document.querySelectorAll("details[data-site-languages]"));
+  if (menus.length === 0) return;
+  document.addEventListener("click", (event) => {
+    for (const menu of menus) {
+      if (menu.open && !menu.contains(event.target)) menu.open = false;
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    for (const menu of menus) {
+      if (!menu.open) continue;
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+    }
+  });
+  for (const menu of menus) {
+    menu.addEventListener("toggle", () => {
+      if (!menu.open) return;
+      for (const other of menus) {
+        if (other !== menu) other.open = false;
+      }
+    });
+  }
 })();
 </script>`;
 }
