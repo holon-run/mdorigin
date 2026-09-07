@@ -1,7 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseMarkdownDocument, renderMarkdown, rewriteMarkdownLinksInHtml } from './markdown.js';
+import {
+  parseEntryDocumentMeta,
+  parseMarkdownDocument,
+  renderMarkdown,
+  rewriteMarkdownLinksInHtml,
+} from './markdown.js';
+
+test('parseEntryDocumentMeta memoizes metadata by entry identity', () => {
+  const entry = {
+    path: 'posts/example.md',
+    kind: 'text' as const,
+    mediaType: 'text/markdown; charset=utf-8',
+    text: '---\ntitle: Example\ndraft: false\n---\n\n# Example\n',
+  };
+
+  const first = parseEntryDocumentMeta(entry);
+  const second = parseEntryDocumentMeta(entry);
+
+  assert.equal(first, second);
+  assert.equal(first.meta.title, 'Example');
+
+  const editedEntry = { ...entry, text: entry.text.replace('Example', 'Edited') };
+  const edited = parseEntryDocumentMeta(editedEntry);
+  assert.notEqual(edited, first);
+  assert.equal(edited.meta.title, 'Edited');
+});
 
 test('renderMarkdown preserves trusted raw html media tags', async () => {
   const html = await renderMarkdown([

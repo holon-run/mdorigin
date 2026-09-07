@@ -5,6 +5,8 @@ import remarkRehype from 'remark-rehype';
 import rehypeRaw from 'rehype-raw';
 import rehypeStringify from 'rehype-stringify';
 
+import type { ContentEntry } from './content-store.js';
+
 export interface ParsedDocumentMeta {
   title?: string;
   name?: string;
@@ -18,18 +20,26 @@ export interface ParsedDocumentMeta {
   [key: string]: unknown;
 }
 
-export interface ParsedDocument {
-  sourcePath: string;
-  body: string;
-  html: string;
-  meta: ParsedDocumentMeta;
-}
-
 export interface ManagedIndexEntry {
   kind: 'directory' | 'article';
   title: string;
   href: string;
   detail?: string;
+}
+
+/**
+ * Parsed document without rendered HTML. Extracting frontmatter metadata is
+ * orders of magnitude cheaper than rendering markdown to HTML, so metadata
+ * consumers (listings, sitemaps, feeds, alias scans) use this shape.
+ */
+export interface ParsedDocumentLite {
+  sourcePath: string;
+  body: string;
+  meta: ParsedDocumentMeta;
+}
+
+export interface ParsedDocument extends ParsedDocumentLite {
+  html: string;
 }
 
 export function getDocumentTitle(meta: ParsedDocumentMeta, body: string, fallback: string): string {
@@ -54,15 +64,47 @@ export async function parseMarkdownDocument(
   sourcePath: string,
   markdown: string,
 ): Promise<ParsedDocument> {
+  const { body, meta } = parseDocumentMeta(sourcePath, markdown);
+  const html = rewriteMarkdownLinksInHtml(await renderMarkdown(body));
+
+  return {
+    sourcePath,
+    body,
+    html,
+    meta,
+  };
+}
+
+export function parseDocumentMeta(
+  sourcePath: string,
+  markdown: string,
+): ParsedDocumentLite {
   const parsed = matter(markdown);
-  const html = rewriteMarkdownLinksInHtml(await renderMarkdown(parsed.content));
 
   return {
     sourcePath,
     body: parsed.content,
-    html,
     meta: normalizeMeta(parsed.data),
   };
+}
+
+const entryDocumentMetaCache = new WeakMap<ContentEntry, ParsedDocumentLite>();
+
+/**
+ * Parse a store entry's frontmatter metadata, memoized by entry identity.
+ * Immutable in-memory stores return the same entry object per path, so
+ * repeated metadata reads (alias scans, listings, feeds) parse each document
+ * at most once per isolate. File-system stores return fresh entry objects,
+ * which naturally bypasses the cache after content edits.
+ */
+export function parseEntryDocumentMeta(entry: ContentEntry): ParsedDocumentLite {
+  const cached = entryDocumentMetaCache.get(entry);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const parsed = parseDocumentMeta(entry.path, entry.text ?? '');
+  entryDocumentMetaCache.set(entry, parsed);
+  return parsed;
 }
 
 export async function renderMarkdown(markdown: string): Promise<string> {

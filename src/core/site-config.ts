@@ -5,7 +5,7 @@ import { tsImport } from 'tsx/esm/api';
 
 import type { ContentStore } from './content-store.js';
 import { getDirectoryIndexCandidates } from './directory-index.js';
-import { parseMarkdownDocument } from './markdown.js';
+import { parseEntryDocumentMeta } from './markdown.js';
 import type { MdoPlugin } from './extensions.js';
 import {
   DEFAULT_SITE_LOCALE,
@@ -307,7 +307,7 @@ export async function applySiteConfigFrontmatterDefaults(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(candidatePath, entry.text);
+    const parsed = parseEntryDocumentMeta(entry);
 
     return {
       ...siteConfig,

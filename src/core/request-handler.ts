@@ -15,7 +15,9 @@ import {
   extractManagedIndexEntries,
   getDocumentSummary,
   getDocumentTitle as getParsedDocumentTitle,
+  type ParsedDocumentLite,
   type ParsedDocumentMeta,
+  parseEntryDocumentMeta,
   parseMarkdownDocument,
   stripManagedIndexBlock,
   stripManagedIndexLinks,
@@ -187,7 +189,7 @@ export async function handleSiteRequest(
   }
 
   if (resolved.kind === 'markdown' || negotiatedMarkdown) {
-    const parsed = await parseMarkdownDocument(resolved.sourcePath, entry.text);
+    const parsed = parseEntryDocumentMeta(entry);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown, requestLocale);
     }
@@ -204,7 +206,7 @@ export async function handleSiteRequest(
     };
   }
 
-  const parsed = await parseMarkdownDocument(resolved.sourcePath, entry.text);
+  const parsed = parseEntryDocumentMeta(entry);
   if (parsed.meta.draft === true && options.draftMode === 'exclude') {
     return renderNotFoundForResolvedRequest(store, resolved, options, negotiatedMarkdown, requestLocale);
   }
@@ -234,9 +236,7 @@ export async function handleSiteRequest(
   }
   const documentBody =
     listingEntries.length > 0 ? stripManagedIndexBlock(renderedBody) : renderedBody;
-  const renderedParsed = documentBody === entry.text
-    ? parsed
-    : await parseMarkdownDocument(resolved.sourcePath, documentBody);
+  const renderedParsed = await parseMarkdownDocument(resolved.sourcePath, documentBody);
 
   return renderStructuredPage({
     requestPath: resolved.requestPath,
@@ -304,7 +304,7 @@ function buildPageRenderModel(options: {
   resolvedRequestPath: string;
   sourcePath: string;
   renderedBodyHtml: string;
-  parsed: Awaited<ReturnType<typeof parseMarkdownDocument>>;
+  parsed: ParsedDocumentLite;
   siteConfig: ResolvedSiteConfig;
   /** Locale-effective site title; falls back to the global config value. */
   siteTitle?: string;
@@ -361,7 +361,7 @@ function buildPageRenderModel(options: {
 async function renderStructuredPage(options: {
   requestPath: string;
   sourcePath: string;
-  parsed: Awaited<ReturnType<typeof parseMarkdownDocument>>;
+  parsed: ParsedDocumentLite;
   renderedParsed: Awaited<ReturnType<typeof parseMarkdownDocument>>;
   siteConfig: ResolvedSiteConfig;
   topNav: SiteNavItem[];
@@ -810,7 +810,7 @@ async function hasPublishedContent(
   }
 
   if (draftMode === 'exclude') {
-    const parsed = await parseMarkdownDocument(contentPath, entry.text);
+    const parsed = parseEntryDocumentMeta(entry);
     if (parsed.meta.draft === true) {
       return false;
     }
@@ -1009,7 +1009,7 @@ function appendVary(existing: string | undefined, value: string): string {
   return `${existing}, ${value}`;
 }
 
-function getDocumentTitle(parsed: Awaited<ReturnType<typeof parseMarkdownDocument>>): string {
+function getDocumentTitle(parsed: ParsedDocumentLite): string {
   const basename = path.posix.basename(parsed.sourcePath, '.md');
   const fallback =
     basename === 'index' || basename === 'README' || basename === 'SKILL'
@@ -1052,7 +1052,7 @@ async function collectSitemapEntries(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(entry.path, document.text);
+    const parsed = parseEntryDocumentMeta(document);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       continue;
     }
@@ -1118,7 +1118,7 @@ async function collectRssFeedItems(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(entry.path, document.text);
+    const parsed = parseEntryDocumentMeta(document);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       continue;
     }
@@ -1173,7 +1173,7 @@ function inferFeedContentType(
 }
 
 function getFeedSummary(
-  parsed: Awaited<ReturnType<typeof parseMarkdownDocument>>,
+  parsed: ParsedDocumentLite,
 ): string | undefined {
   return getDocumentSummary(
     parsed.meta,
@@ -1314,7 +1314,7 @@ async function tryRenderAlternateDirectoryIndex(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(candidatePath, entry.text);
+    const parsed = parseEntryDocumentMeta(entry);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       return notFound();
     }
@@ -1345,9 +1345,7 @@ async function tryRenderAlternateDirectoryIndex(
     }
     const documentBody =
       listingEntries.length > 0 ? stripManagedIndexBlock(renderedBody) : renderedBody;
-    const renderedParsed = documentBody === entry.text
-      ? parsed
-      : await parseMarkdownDocument(candidatePath, documentBody);
+   const renderedParsed = await parseMarkdownDocument(candidatePath, documentBody);
 
     return renderStructuredPage({
       requestPath,
@@ -1399,7 +1397,7 @@ async function tryServeAlternateDirectoryMarkdown(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(candidatePath, entry.text);
+    const parsed = parseEntryDocumentMeta(entry);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       return notFound();
     }
@@ -1446,7 +1444,7 @@ async function tryRedirectAlternateDirectoryMarkdown(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(candidatePath, entry.text);
+    const parsed = parseEntryDocumentMeta(entry);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       return null;
     }
@@ -1575,7 +1573,7 @@ async function findAliasRedirectLocation(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(entry.path, document.text);
+    const parsed = parseEntryDocumentMeta(document);
     if (parsed.meta.draft === true && options.draftMode === 'exclude') {
       continue;
     }
@@ -1745,7 +1743,7 @@ async function resolveDirectoryNav(
       continue;
     }
 
-    const parsed = await parseMarkdownDocument(candidatePath, contentEntry.text);
+    const parsed = parseEntryDocumentMeta(contentEntry);
     const shape = await inspectDirectoryShape(store, entry.path);
 
     return {
