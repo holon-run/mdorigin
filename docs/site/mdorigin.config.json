@@ -9,6 +9,10 @@
       "siteDescription": "Markdown 优先的发布引擎，同时服务人类与智能体。"
     }
   ],
+  "localeDetection": {
+    "enabled": true,
+    "redirect": "root"
+  },
   "siteUrl": "https://mdorigin.holon.run",
   "favicon": "/favicon.svg",
   "socialImage": "/og.svg",
