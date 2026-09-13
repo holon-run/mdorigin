@@ -163,6 +163,36 @@ Per-locale fields:
 
 A default locale may also set an explicit `pathPrefix` such as `/en`; its content then lives under `en/` and `/` redirects to `/en/`.
 
+### Automatic locale detection
+
+Locale detection is opt-in:
+
+```json
+{
+  "locales": [
+    { "code": "en", "default": true },
+    { "code": "zh-CN", "label": "中文" }
+  ],
+  "localeDetection": {
+    "enabled": true,
+    "redirect": "root"
+  }
+}
+```
+
+When enabled:
+
+- only `/` is detected automatically; deep links are never redirected
+- a locale previously selected through the language switcher takes priority
+- otherwise `Accept-Language` selects the best configured locale
+- a matched non-default locale receives a `302` redirect to its locale root
+- crawlers stay on the default root
+- detection responses are private and not cached
+
+The built-in language switcher records the selected locale in a cookie. This
+also lets users explicitly remain on the default locale even when their browser
+prefers another language.
+
 ## Site Metadata
 
 - If `siteTitle` is configured, it is used directly.

@@ -1683,6 +1683,75 @@ test('matchRequestLocale attributes paths to configured locales', async () => {
   assert.equal(matchRequestLocale('/zh-CN/', undefined), null);
 });
 
+test('handleSiteRequest detects locale at the root without public caching', async () => {
+  const store = createMultiLocaleStore();
+  const siteConfig = {
+    ...MULTI_LOCALE_SITE_CONFIG,
+    localeDetection: { enabled: true as const, redirect: 'root' as const },
+  };
+
+  const detected = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig,
+    acceptLanguageHeader: 'en-US;q=0.7, zh-CN;q=0.9',
+  });
+  assert.equal(detected.status, 302);
+  assert.equal(detected.headers.location, '/zh-CN/');
+  assert.match(detected.headers['set-cookie'] ?? '', /^mdorigin_locale=zh-CN;/);
+  assert.equal(detected.headers['cache-control'], 'private, no-store');
+
+  const cookieWins = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig,
+    cookieHeader: 'mdorigin_locale=en',
+    acceptLanguageHeader: 'zh-CN',
+  });
+  assert.equal(cookieWins.status, 200);
+  assert.equal(cookieWins.headers['cache-control'], 'private, no-store');
+  assert.match(cookieWins.headers.vary ?? '', /accept-language/);
+  assert.match(cookieWins.headers.vary ?? '', /cookie/);
+
+  const crawler = await handleSiteRequest(store, '/', {
+    draftMode: 'exclude',
+    siteConfig,
+    acceptLanguageHeader: 'zh-CN',
+    userAgentHeader: 'Googlebot/2.1',
+  });
+  assert.equal(crawler.status, 200);
+  assert.notEqual(crawler.headers['cache-control'], 'private, no-store');
+});
+
+test('handleSiteRequest records language switch preferences and cleans the URL', async () => {
+  const store = createMultiLocaleStore();
+  const siteConfig = {
+    ...MULTI_LOCALE_SITE_CONFIG,
+    localeDetection: { enabled: true as const, redirect: 'root' as const },
+  };
+
+  const page = await handleSiteRequest(store, '/docs/', {
+    draftMode: 'exclude',
+    siteConfig,
+  });
+  assert.match(
+    String(page.body),
+    /<a href="\/zh-CN\/docs\/\?lang=zh-CN" hreflang="zh-CN">中文<\/a>/,
+  );
+  assert.match(
+    String(page.body),
+    /<link rel="alternate" hreflang="zh-CN" href="https:\/\/example\.com\/zh-CN\/docs\/">/,
+  );
+
+  const preference = await handleSiteRequest(store, '/zh-CN/docs/', {
+    draftMode: 'exclude',
+    siteConfig,
+    searchParams: new URLSearchParams('lang=zh-CN&ref=nav'),
+  });
+  assert.equal(preference.status, 302);
+  assert.equal(preference.headers.location, '/zh-CN/docs/?ref=nav');
+  assert.match(preference.headers['set-cookie'] ?? '', /^mdorigin_locale=zh-CN;/);
+  assert.equal(preference.headers['cache-control'], 'private, no-store');
+});
+
 test('handleSiteRequest renders locale pages with language chrome', async () => {
   const store = createMultiLocaleStore();
   const searchApi = { search: async () => [] };

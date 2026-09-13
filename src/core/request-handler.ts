@@ -60,6 +60,9 @@ export interface HandleSiteRequestOptions {
   draftMode: 'include' | 'exclude';
   siteConfig: ResolvedSiteConfig;
   acceptHeader?: string;
+  acceptLanguageHeader?: string;
+  cookieHeader?: string;
+  userAgentHeader?: string;
   searchParams?: URLSearchParams;
   requestUrl?: string;
   searchApi?: SearchApi;
@@ -73,6 +76,50 @@ export interface SiteResponse {
 }
 
 export async function handleSiteRequest(
+  store: ContentStore,
+  pathname: string,
+  options: HandleSiteRequestOptions,
+): Promise<SiteResponse> {
+  if (options.siteConfig.localeDetection?.enabled) {
+    const explicitPreference = getExplicitLocalePreference(options);
+    if (explicitPreference !== null) {
+      return localePreferenceRedirect(pathname, options, explicitPreference);
+    }
+
+    if (pathname === '/' && !isCrawler(options.userAgentHeader)) {
+      const preferredLocale = resolvePreferredLocale(options);
+      if (preferredLocale !== null && preferredLocale.pathPrefix !== '') {
+        return {
+          status: 302,
+          headers: {
+            location: `${preferredLocale.pathPrefix}/`,
+            'set-cookie': serializeLocalePreference(preferredLocale.code),
+            'cache-control': 'private, no-store',
+            vary: 'accept-language, cookie',
+          },
+        };
+      }
+
+      const response = await handleSiteRequestWithoutLocaleDetection(
+        store,
+        pathname,
+        options,
+      );
+      return {
+        ...response,
+        headers: {
+          ...response.headers,
+          'cache-control': 'private, no-store',
+          vary: mergeVary(response.headers.vary, 'accept-language', 'cookie'),
+        },
+      };
+    }
+  }
+
+  return handleSiteRequestWithoutLocaleDetection(store, pathname, options);
+}
+
+async function handleSiteRequestWithoutLocaleDetection(
   store: ContentStore,
   pathname: string,
   options: HandleSiteRequestOptions,
@@ -734,12 +781,154 @@ async function buildLanguageOptions(
         translated === null
           ? getLocaleHomePath(locale)
           : getCanonicalHtmlPathForContentPath(translated),
+      preferenceHref: siteConfig.localeDetection?.enabled
+        ? appendLocalePreference(
+            translated === null
+              ? getLocaleHomePath(locale)
+              : getCanonicalHtmlPathForContentPath(translated),
+            locale.code,
+          )
+        : undefined,
       current: locale === currentLocale,
       translated: translated !== null,
     });
   }
 
   return languages;
+}
+
+const LOCALE_PREFERENCE_COOKIE = 'mdorigin_locale';
+
+function getExplicitLocalePreference(
+  options: HandleSiteRequestOptions,
+): ResolvedLocaleConfig | null {
+  const requested = options.searchParams?.get('lang');
+  if (requested === null || requested === undefined) {
+    return null;
+  }
+  return findConfiguredLocale(requested, options.siteConfig.locales);
+}
+
+function localePreferenceRedirect(
+  pathname: string,
+  options: HandleSiteRequestOptions,
+  locale: ResolvedLocaleConfig,
+): SiteResponse {
+  const searchParams = new URLSearchParams(options.searchParams);
+  searchParams.delete('lang');
+  const search = searchParams.toString();
+  return {
+    status: 302,
+    headers: {
+      location: `${pathname}${search === '' ? '' : `?${search}`}`,
+      'set-cookie': serializeLocalePreference(locale.code),
+      'cache-control': 'private, no-store',
+    },
+  };
+}
+
+function resolvePreferredLocale(
+  options: HandleSiteRequestOptions,
+): ResolvedLocaleConfig | null {
+  const cookiePreference = readCookie(options.cookieHeader, LOCALE_PREFERENCE_COOKIE);
+  const cookieLocale = findConfiguredLocale(cookiePreference, options.siteConfig.locales);
+  if (cookieLocale !== null) {
+    return cookieLocale;
+  }
+
+  for (const language of parseAcceptLanguage(options.acceptLanguageHeader)) {
+    const exact = findConfiguredLocale(language, options.siteConfig.locales);
+    if (exact !== null) {
+      return exact;
+    }
+    const base = language.split('-')[0];
+    const baseMatch = options.siteConfig.locales?.find(
+      (locale) =>
+        locale.code.toLowerCase() === base ||
+        locale.code.toLowerCase().startsWith(`${base}-`),
+    );
+    if (baseMatch !== undefined) {
+      return baseMatch;
+    }
+  }
+  return null;
+}
+
+function findConfiguredLocale(
+  code: string | null,
+  locales: ResolvedLocaleConfig[] | undefined,
+): ResolvedLocaleConfig | null {
+  if (code === null || locales === undefined) {
+    return null;
+  }
+  const normalized = code.trim().toLowerCase();
+  return locales.find((locale) => locale.code.toLowerCase() === normalized) ?? null;
+}
+
+function parseAcceptLanguage(value: string | undefined): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((part, index) => {
+      const [language, ...parameters] = part.trim().split(';');
+      const qualityParameter = parameters.find((parameter) =>
+        parameter.trim().toLowerCase().startsWith('q='),
+      );
+      const quality =
+        qualityParameter === undefined
+          ? 1
+          : Number.parseFloat(qualityParameter.trim().slice(2));
+      return { language: language.toLowerCase(), quality, index };
+    })
+    .filter(
+      ({ language, quality }) =>
+        language !== '' && language !== '*' && Number.isFinite(quality) && quality > 0,
+    )
+    .sort((left, right) => right.quality - left.quality || left.index - right.index)
+    .map(({ language }) => language);
+}
+
+function readCookie(header: string | undefined, name: string): string | null {
+  if (header === undefined) {
+    return null;
+  }
+  for (const item of header.split(';')) {
+    const separator = item.indexOf('=');
+    if (separator === -1 || item.slice(0, separator).trim() !== name) {
+      continue;
+    }
+    try {
+      return decodeURIComponent(item.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function serializeLocalePreference(code: string): string {
+  return `${LOCALE_PREFERENCE_COOKIE}=${encodeURIComponent(code)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`;
+}
+
+function appendLocalePreference(href: string, code: string): string {
+  return `${href}${href.includes('?') ? '&' : '?'}lang=${encodeURIComponent(code)}`;
+}
+
+function isCrawler(userAgent: string | undefined): boolean {
+  return userAgent !== undefined && /bot|crawler|spider|slurp|bingpreview/i.test(userAgent);
+}
+
+function mergeVary(current: string | undefined, ...values: string[]): string {
+  const entries = new Map<string, string>();
+  for (const value of [...(current?.split(',') ?? []), ...values]) {
+    const trimmed = value.trim();
+    if (trimmed !== '') {
+      entries.set(trimmed.toLowerCase(), trimmed);
+    }
+  }
+  return [...entries.values()].join(', ');
 }
 
 async function localeHasContent(

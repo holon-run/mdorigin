@@ -143,7 +143,7 @@ export function renderDocument(options: RenderDocumentOptions) {
           `<ul class="site-languages__panel">${options.languages
             .map(
               (language) =>
-                `<li><a href="${escapeHtml(language.href)}" hreflang="${escapeHtml(language.code)}"${
+                `<li><a href="${escapeHtml(language.preferenceHref ?? language.href)}" hreflang="${escapeHtml(language.code)}"${
                   language.current ? ' aria-current="page"' : ''
                 }>${escapeHtml(language.label)}</a></li>`,
             )

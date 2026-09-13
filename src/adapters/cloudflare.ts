@@ -223,6 +223,7 @@ export function createCloudflareWorker(
       if (
         etag !== undefined &&
         isCacheableRequest(request, url) &&
+        !isLocaleDetectionRequest(manifest, url) &&
         requestMatchesEtag(request.headers.get('if-none-match'), etag)
       ) {
         return new Response(null, {
@@ -235,7 +236,9 @@ export function createCloudflareWorker(
       }
       const cacheDebugEnabled = isCacheDebugEnabled(env);
       const responseCacheKey =
-        manifest.deployVersion !== undefined && isCacheableRequest(request, url)
+        manifest.deployVersion !== undefined &&
+        isCacheableRequest(request, url) &&
+        !isLocaleDetectionRequest(manifest, url)
           ? buildResponseCacheKey(
               manifest.deployVersion,
               resolvedRequest,
@@ -283,6 +286,9 @@ export function createCloudflareWorker(
           siteDescriptionConfigured: false,
         },
         acceptHeader: request.headers.get('accept') ?? undefined,
+        acceptLanguageHeader: request.headers.get('accept-language') ?? undefined,
+        cookieHeader: request.headers.get('cookie') ?? undefined,
+        userAgentHeader: request.headers.get('user-agent') ?? undefined,
         searchParams: url.searchParams,
         requestUrl: request.url,
         searchApi: inlineSearchApi ?? externalSearchApi,
@@ -340,6 +346,16 @@ function isCacheableRequest(request: Request, url: URL): boolean {
     return false;
   }
   return url.pathname !== '/api' && !url.pathname.startsWith('/api/');
+}
+
+function isLocaleDetectionRequest(
+  manifest: CloudflareManifest,
+  url: URL,
+): boolean {
+  return (
+    url.pathname === '/' &&
+    manifest.siteConfig?.localeDetection?.enabled === true
+  );
 }
 
 function isCacheableContentType(contentType: string | undefined): boolean {

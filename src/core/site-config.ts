@@ -100,6 +100,11 @@ export interface SiteConfig {
    * path prefix. Omit for single-language sites.
    */
   locales?: LocaleConfigInput[];
+  /**
+   * Optional server-side locale detection. When enabled, only the site root
+   * redirects according to the saved locale preference or Accept-Language.
+   */
+  localeDetection?: SiteLocaleDetectionConfig;
   siteUrl?: string;
   favicon?: string;
   socialImage?: string;
@@ -129,6 +134,7 @@ export interface ResolvedSiteConfig {
   locale: string;
   messages: Partial<SiteMessages>;
   locales?: ResolvedLocaleConfig[];
+  localeDetection?: ResolvedSiteLocaleDetectionConfig;
   siteUrl?: string;
   favicon?: string;
   socialImage?: string;
@@ -148,6 +154,16 @@ export interface ResolvedSiteConfig {
   stylesheetContent?: string;
   siteTitleConfigured: boolean;
   siteDescriptionConfigured: boolean;
+}
+
+export interface SiteLocaleDetectionConfig {
+  enabled?: boolean;
+  redirect?: 'root';
+}
+
+export interface ResolvedSiteLocaleDetectionConfig {
+  enabled: true;
+  redirect: 'root';
 }
 
 export interface LoadSiteConfigOptions {
@@ -224,6 +240,10 @@ export async function loadUserSiteConfig(
   const legacyConfig = parsedConfig as Record<string, unknown>;
   const messageOverrides = resolveMessageOverrides(parsedConfig.messages, configFilePath);
   const locales = resolveLocalesConfig(parsedConfig, configFilePath);
+  const localeDetection = resolveLocaleDetectionConfig(
+    parsedConfig.localeDetection,
+    configFilePath,
+  );
 
   const stylesheetPath = parsedConfig.stylesheet
     ? path.resolve(path.dirname(configFilePath), parsedConfig.stylesheet)
@@ -247,6 +267,7 @@ export async function loadUserSiteConfig(
       normalizeSiteLocale(parsedConfig.locale),
     messages: messageOverrides,
     locales,
+    localeDetection,
     siteUrl: normalizeSiteUrl(parsedConfig.siteUrl),
     favicon: normalizeSiteHref(parsedConfig.favicon),
     socialImage: normalizeSiteHref(parsedConfig.socialImage),
@@ -327,6 +348,35 @@ export async function applySiteConfigFrontmatterDefaults(
   }
 
   return siteConfig;
+}
+
+function resolveLocaleDetectionConfig(
+  value: SiteLocaleDetectionConfig | undefined,
+  configFilePath: string,
+): ResolvedSiteLocaleDetectionConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`Invalid "localeDetection" in ${configFilePath}: expected an object`);
+  }
+  if (value.enabled === false) {
+    return undefined;
+  }
+  if (value.enabled !== true) {
+    throw new Error(
+      `Invalid "localeDetection.enabled" in ${configFilePath}: expected true or false`,
+    );
+  }
+  if (value.redirect !== undefined && value.redirect !== 'root') {
+    throw new Error(
+      `Invalid "localeDetection.redirect" in ${configFilePath}: expected "root"`,
+    );
+  }
+  return {
+    enabled: true,
+    redirect: 'root',
+  };
 }
 
 function resolveMessageOverrides(

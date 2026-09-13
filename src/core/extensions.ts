@@ -22,6 +22,8 @@ export interface PageLanguage {
   label: string;
   /** Root-relative href for this language: the translated page when available, otherwise the language home. */
   href: string;
+  /** Preference-recording href used by the built-in language switcher. */
+  preferenceHref?: string;
   current: boolean;
   /** Whether a page-level translation exists for this language. */
   translated: boolean;

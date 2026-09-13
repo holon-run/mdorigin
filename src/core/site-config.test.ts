@@ -437,6 +437,38 @@ test('loadSiteConfig resolves locales with default prefixes and content bases', 
   ]);
 });
 
+test('loadSiteConfig resolves and validates locale detection', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locale-detection-'));
+  const configPath = path.join(rootDir, 'mdorigin.config.json');
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      locales: [{ code: 'en', default: true }, { code: 'zh-CN' }],
+      localeDetection: { enabled: true, redirect: 'root' },
+    }),
+    'utf8',
+  );
+
+  const config = await loadSiteConfig({ rootDir });
+  assert.deepEqual(config.localeDetection, {
+    enabled: true,
+    redirect: 'root',
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      locales: [{ code: 'en', default: true }, { code: 'zh-CN' }],
+      localeDetection: { enabled: true, redirect: 'all' },
+    }),
+    'utf8',
+  );
+  await assert.rejects(
+    () => loadSiteConfig({ rootDir }),
+    /"localeDetection\.redirect".*expected "root"/,
+  );
+});
+
 test('loadSiteConfig resolves locale site identity and navigation overrides', async () => {
   const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-locale-overrides-'));
   await writeFile(
