@@ -60,26 +60,43 @@ export function renderDocument(options: RenderDocumentOptions) {
   const siteDescription = options.siteDescription
     ? escapeHtml(options.siteDescription)
     : undefined;
+  const socialDescription = options.summary ?? options.siteDescription;
   const summaryMeta = options.summary
     ? `<meta name="description" content="${escapeHtml(options.summary)}">`
     : '';
-  const canonicalMeta =
+  const canonicalUrl =
     options.siteUrl && options.canonicalPath
-      ? `<link rel="canonical" href="${escapeHtml(
-          `${options.siteUrl}${options.canonicalPath}`,
-        )}">`
+      ? `${options.siteUrl}${options.canonicalPath}`
+      : undefined;
+  const canonicalMeta =
+    canonicalUrl
+      ? `<link rel="canonical" href="${escapeHtml(canonicalUrl)}">`
       : '';
   const faviconMeta = options.favicon
     ? `<link rel="icon" href="${escapeHtml(options.favicon)}">`
     : '';
   const absoluteSocialImageUrl = getAbsoluteSiteAssetUrl(options.siteUrl, options.socialImage);
-  const socialImageMeta = absoluteSocialImageUrl
-    ? [
-        `<meta property="og:image" content="${escapeHtml(absoluteSocialImageUrl)}">`,
-        '<meta name="twitter:card" content="summary_large_image">',
-        `<meta name="twitter:image" content="${escapeHtml(absoluteSocialImageUrl)}">`,
-      ].join('')
-    : '';
+  const socialMeta = [
+    `<meta property="og:title" content="${title}">`,
+    socialDescription
+      ? `<meta property="og:description" content="${escapeHtml(socialDescription)}">`
+      : '',
+    canonicalUrl
+      ? `<meta property="og:url" content="${escapeHtml(canonicalUrl)}">`
+      : '',
+    '<meta property="og:type" content="website">',
+    `<meta name="twitter:title" content="${title}">`,
+    socialDescription
+      ? `<meta name="twitter:description" content="${escapeHtml(socialDescription)}">`
+      : '',
+    absoluteSocialImageUrl
+      ? [
+          `<meta property="og:image" content="${escapeHtml(absoluteSocialImageUrl)}">`,
+          '<meta name="twitter:card" content="summary_large_image">',
+          `<meta name="twitter:image" content="${escapeHtml(absoluteSocialImageUrl)}">`,
+        ].join('')
+      : '',
+  ].join('');
   const alternateMarkdownMeta = options.alternateMarkdownPath
     ? `<link rel="alternate" type="text/markdown" href="${escapeHtml(
         options.alternateMarkdownPath,
@@ -234,7 +251,7 @@ export function renderDocument(options: RenderDocumentOptions) {
     summaryMeta,
     canonicalMeta,
     faviconMeta,
-    socialImageMeta,
+    socialMeta,
     alternateMarkdownMeta,
     rssMeta,
     hreflangMeta,
