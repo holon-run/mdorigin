@@ -1271,6 +1271,84 @@ test('handleSiteRequest respects site config rendering options', async () => {
   assert.doesNotMatch(String(response.body), /2026-03-20/);
 });
 
+test('handleSiteRequest prefers frontmatter social image over site config', async () => {
+  const store = new MemoryContentStore([
+    {
+      path: 'post.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: [
+        '---',
+        'title: Custom Card Post',
+        'socialImage: /custom-card.png',
+        'image: /ignored-alias.png',
+        '---',
+        '',
+        'Body text',
+      ].join('\n'),
+    },
+  ]);
+
+  const response = await handleSiteRequest(store, '/post', {
+    draftMode: 'include',
+    siteConfig: {
+      ...TEST_SITE_CONFIG,
+      siteUrl: 'https://example.com',
+      socialImage: '/og.svg',
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.match(
+    String(response.body),
+    /property="og:image" content="https:\/\/example\.com\/custom-card\.png"/,
+  );
+  assert.match(
+    String(response.body),
+    /name="twitter:image" content="https:\/\/example\.com\/custom-card\.png"/,
+  );
+  assert.doesNotMatch(String(response.body), /og\.svg/);
+});
+
+test('handleSiteRequest resolves social image aliases and relative hrefs', async () => {
+  const siteConfig = {
+    ...TEST_SITE_CONFIG,
+    siteUrl: 'https://example.com',
+    socialImage: '/og.svg',
+  };
+  const documentEntry = (path: string, frontmatter: string) => ({
+    path,
+    kind: 'text' as const,
+    mediaType: 'text/markdown; charset=utf-8',
+    text: ['---', frontmatter, '---', '', 'Body text'].join('\n'),
+  });
+
+  const store = new MemoryContentStore([
+    documentEntry('alias.md', 'title: Alias Post\nimage: /alias-card.png'),
+    documentEntry('remote.md', 'title: Remote Post\ncover: https://cdn.example.net/remote.jpg'),
+    documentEntry('blog/relative.md', 'title: Relative Post\nsocialImage: assets/card.png'),
+    documentEntry('blog/nested.md', 'title: Nested Post\nsocialImage: ../shared/card.png'),
+  ]);
+
+  const expectations: Array<[string, RegExp]> = [
+    ['/alias', /property="og:image" content="https:\/\/example\.com\/alias-card\.png"/],
+    ['/remote', /property="og:image" content="https:\/\/cdn\.example\.net\/remote\.jpg"/],
+    ['/blog/relative', /property="og:image" content="https:\/\/example\.com\/blog\/assets\/card\.png"/],
+    ['/blog/nested', /property="og:image" content="https:\/\/example\.com\/shared\/card\.png"/],
+  ];
+
+  for (const [requestPath, pattern] of expectations) {
+    const response = await handleSiteRequest(store, requestPath, {
+      draftMode: 'include',
+      siteConfig,
+    });
+    assert.equal(response.status, 200);
+    assert.match(String(response.body), pattern);
+    assert.match(String(response.body), /name="twitter:card" content="summary_large_image"/);
+    assert.doesNotMatch(String(response.body), /og\.svg/);
+  }
+});
+
 test('handleSiteRequest uses skill metadata fallbacks and serves script files as text', async () => {
   const store = new MemoryContentStore([
     {

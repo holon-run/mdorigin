@@ -17,6 +17,12 @@ export interface ParsedDocumentMeta {
   type?: string;
   order?: number;
   aliases?: string[];
+  /**
+   * Canonical social sharing image for this document, normalized from the
+   * `socialImage` frontmatter field, with `image` and `cover` accepted as
+   * aliases. Consumers should read this field instead of the raw alias fields.
+   */
+  socialImage?: string;
   [key: string]: unknown;
 }
 
@@ -295,6 +301,13 @@ function normalizeMeta(data: Record<string, unknown>): ParsedDocumentMeta {
     );
   }
 
+  const socialImage = firstNonEmptyString(data.socialImage, data.image, data.cover);
+  if (socialImage !== undefined) {
+    meta.socialImage = socialImage;
+  } else {
+    delete meta.socialImage;
+  }
+
   return meta;
 }
 
@@ -414,6 +427,6 @@ function extractFirstParagraph(markdown: string): string | undefined {
   return undefined;
 }
 
-function firstNonEmptyString(...values: Array<string | undefined>): string | undefined {
-  return values.find((value) => typeof value === 'string' && value !== '');
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === 'string' && value !== '');
 }

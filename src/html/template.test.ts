@@ -25,6 +25,25 @@ test('renderDocument emits default Open Graph and Twitter metadata', () => {
   assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
 });
 
+test('renderDocument keeps absolute social image URLs untouched', () => {
+  const html = renderDocument({
+    siteTitle: 'Example Site',
+    siteUrl: 'https://example.com',
+    socialImage: 'https://cdn.example.com/card.png',
+    title: 'Example page',
+    body: '<p>Content</p>',
+  });
+
+  assert.match(
+    html,
+    /property="og:image" content="https:\/\/cdn\.example\.com\/card\.png"/,
+  );
+  assert.match(
+    html,
+    /name="twitter:image" content="https:\/\/cdn\.example\.com\/card\.png"/,
+  );
+});
+
 test('renderDocument omits optional social values without a site URL or summary', () => {
   const html = renderDocument({
     siteTitle: 'Example Site',

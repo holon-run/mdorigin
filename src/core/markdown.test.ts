@@ -28,6 +28,24 @@ test('parseEntryDocumentMeta memoizes metadata by entry identity', () => {
   assert.equal(edited.meta.title, 'Edited');
 });
 
+test('document metadata normalizes social image aliases', () => {
+  const parseMeta = (frontmatter: string) =>
+    parseEntryDocumentMeta({
+      path: 'posts/example.md',
+      kind: 'text' as const,
+      mediaType: 'text/markdown; charset=utf-8',
+      text: `---\n${frontmatter}\n---\n\n# Example\n`,
+    }).meta;
+
+  assert.equal(
+    parseMeta('socialImage: /explicit.png\nimage: /alias.png').socialImage,
+    '/explicit.png',
+  );
+  assert.equal(parseMeta('image: /alias.png').socialImage, '/alias.png');
+  assert.equal(parseMeta('cover: /cover.png').socialImage, '/cover.png');
+  assert.equal(parseMeta('title: No Image').socialImage, undefined);
+});
+
 test('renderMarkdown preserves trusted raw html media tags', async () => {
   const html = await renderMarkdown([
     'Intro paragraph.',

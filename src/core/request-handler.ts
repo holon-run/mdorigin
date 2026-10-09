@@ -347,6 +347,29 @@ function normalizePositiveInteger(value: string | null): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+/**
+ * Dummy absolute base used only to resolve page-relative social image hrefs
+ * into site-root-relative paths; the host itself is never emitted.
+ */
+const SOCIAL_IMAGE_RESOLUTION_BASE = 'http://mdorigin.local';
+
+function resolvePageSocialImage(
+  href: string | undefined,
+  requestPath: string,
+): string | undefined {
+  if (!href) {
+    return undefined;
+  }
+
+  if (href.startsWith('/') || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href)) {
+    return href;
+  }
+
+  const directory = requestPath.slice(0, requestPath.lastIndexOf('/') + 1) || '/';
+  const resolved = new URL(href, `${SOCIAL_IMAGE_RESOLUTION_BASE}${directory}`);
+  return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+}
+
 function buildPageRenderModel(options: {
   resolvedRequestPath: string;
   sourcePath: string;
@@ -375,7 +398,9 @@ function buildPageRenderModel(options: {
     siteDescription: options.siteDescription ?? options.siteConfig.siteDescription,
     siteUrl: options.siteConfig.siteUrl,
     favicon: options.siteConfig.favicon,
-    socialImage: options.siteConfig.socialImage,
+    socialImage:
+      resolvePageSocialImage(options.parsed.meta.socialImage, options.resolvedRequestPath) ??
+      options.siteConfig.socialImage,
     logo: options.siteConfig.logo,
     title: getDocumentTitle(options.parsed),
     meta: options.parsed.meta,
