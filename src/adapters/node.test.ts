@@ -52,7 +52,7 @@ test('node server serves markdown, html, and assets', async () => {
   try {
     const htmlResponse = await fetch(`http://127.0.0.1:${address.port}/topic/`);
     assert.equal(htmlResponse.status, 200);
-    assert.match(await htmlResponse.text(), /<h1>Topic<\/h1>/);
+    assert.match(await htmlResponse.text(), /<h1 id="topic">Topic<\/h1>/);
 
     const markdownResponse = await fetch(
       `http://127.0.0.1:${address.port}/topic/index.md`,
@@ -64,7 +64,7 @@ test('node server serves markdown, html, and assets', async () => {
       `http://127.0.0.1:${address.port}/topic/post`,
     );
     assert.equal(defaultHtmlResponse.status, 200);
-    assert.match(await defaultHtmlResponse.text(), /<h1>Post<\/h1>/);
+    assert.match(await defaultHtmlResponse.text(), /<h1 id="post">Post<\/h1>/);
 
     const assetResponse = await fetch(
       `http://127.0.0.1:${address.port}/topic/notes.pdf`,

@@ -3,6 +3,7 @@ title: Guides
 type: page
 order: 10
 date: 2026-03-20
+updated: 2026-10-22
 summary: Step-by-step operational guides for previewing, indexing, and deployment.
 ---
 
@@ -24,6 +25,10 @@ It focuses on concrete workflows and command sequences.
 
 - [Cloudflare Deployment](./cloudflare.md)
   2026-03-20 · Build a user-project Worker bundle and initialize Wrangler config.
+  <!-- mdorigin:index kind=article -->
+
+- [Search and agent discovery](./search-discovery.md)
+  Indexing controls, canonical representations, and verifiable section citations.
   <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

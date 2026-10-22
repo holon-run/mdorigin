@@ -7,6 +7,7 @@ import type { ContentStore } from './content-store.js';
 import { getDirectoryIndexCandidates } from './directory-index.js';
 import { parseEntryDocumentMeta } from './markdown.js';
 import type { MdoPlugin } from './extensions.js';
+import { normalizeSiteRobots, type SiteRobots } from './seo.js';
 import {
   DEFAULT_SITE_LOCALE,
   validateSiteMessages,
@@ -110,6 +111,11 @@ export interface SiteConfig {
   socialImage?: string;
   logo?: SiteLogo;
   showDate?: boolean;
+  /** Explicit crawler rules; an existing robots.txt always wins. */
+  robots?: SiteRobots;
+  /** Optional agent directory; an existing llms.txt always wins. */
+  llmsTxt?: boolean;
+  structuredData?: boolean;
   showSummary?: boolean;
   stylesheet?: string;
   topNav?: SiteNavItem[];
@@ -140,6 +146,9 @@ export interface ResolvedSiteConfig {
   socialImage?: string;
   logo?: SiteLogo;
   showDate: boolean;
+  robots?: SiteRobots;
+  llmsTxt?: boolean;
+  structuredData?: boolean;
   showSummary: boolean;
   topNav: SiteNavItem[];
   footerNav: SiteNavItem[];
@@ -271,6 +280,9 @@ export async function loadUserSiteConfig(
     siteUrl: normalizeSiteUrl(parsedConfig.siteUrl),
     favicon: normalizeSiteHref(parsedConfig.favicon),
     socialImage: normalizeSiteHref(parsedConfig.socialImage),
+    robots: normalizeSiteRobots(parsedConfig.robots),
+    llmsTxt: parsedConfig.llmsTxt === true,
+    structuredData: parsedConfig.structuredData === true,
     logo: normalizeLogo(parsedConfig.logo),
     showDate: parsedConfig.showDate ?? true,
     showSummary: parsedConfig.showSummary ?? true,

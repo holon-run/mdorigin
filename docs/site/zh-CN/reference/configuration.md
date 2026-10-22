@@ -2,6 +2,7 @@
 title: 配置
 order: 10
 date: 2026-03-20
+updated: 2026-10-22
 summary: 站点级配置字段及其行为。
 ---
 
@@ -418,6 +419,21 @@ order: 10
 - `showDate` 控制解析出的 markdown 日期是否在默认呈现使用它们的地方显示
 - `showSummary` 控制配置的摘要是否在默认呈现使用它们的地方显示
 - 两个开关默认 `true`
+
+## 搜索发现与索引控制
+
+完整流程参见[搜索与 agent 发现](../guides/search-discovery.md)。
+
+- `robots.rules` 显式配置抓取规则；内容根目录的 `robots.txt` 优先。不自动选择训练爬虫政策。
+- `llmsTxt: true` 可选生成 `/llms.txt`；默认关闭，用户文件优先，按内容语言和栏目组织。
+- `structuredData: true` 可选输出 JSON-LD；显式 `type: post` 对应 `BlogPosting`，其他页面对应 `WebPage`，不编造作者或日期。
+- frontmatter 的 `robots` 支持 `index`/`follow` 布尔值、`maxSnippet`/`maxVideoPreview`（整数，最小 -1）、`maxImagePreview`（`none`/`standard`/`large`），也可使用逗号分隔的标准指令字符串。
+- `noindex: true` 等同 `robots.index: false`；页面仍可访问，但不进入 sitemap、feed 和自动 agent 发现目录。
+- `search: false` 独立控制下一次站内搜索构建；`noindex` 本身不会排除站内搜索，也不提供访问控制。
+- `updated` 表示实质内容更新时间，`date` 表示发布日期；使用有效 ISO 日期或带时区时间戳。sitemap 优先 `updated`，再回退 `date`，无法确定则省略，不使用部署时间。
+- 展示开关不再清空模型中的摘要与日期；默认模板仍直接呈现原作者的 Markdown，不自动插入重复摘要或日期块。
+- 搜索返回的可选 `citationUrl` 经当前内容校验，`canonicalUrl` 仍指向页面。旧索引需重新构建才能提供章节引用。
+- 列表的 `?page=2` 等页面有自指 canonical 和真实前后页链接，JavaScript 加载更多只是增强。
 
 ## 别名
 

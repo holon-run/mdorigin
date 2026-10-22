@@ -48,6 +48,7 @@ export interface PageRenderModel {
   bodyHtml: string;
   summary?: string;
   date?: string;
+  updated?: string;
   showSummary: boolean;
   showDate: boolean;
   topNav: SiteNavItem[];
@@ -63,6 +64,8 @@ export interface PageRenderModel {
   listingRequestPath: string;
   listingInitialPostCount: number;
   listingLoadMoreStep: number;
+  listingPage?: number;
+  listingPageCount?: number;
   searchEnabled: boolean;
 }
 

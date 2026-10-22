@@ -9,14 +9,13 @@ import {
 import path from 'node:path';
 
 import { inferDirectoryContentType } from './core/content-type.js';
-import { getDirectoryIndexCandidates } from './core/directory-index.js';
+import { getDirectoryIndexCandidates, isCanonicalContentSource } from './core/directory-index.js';
 import {
   getDocumentSummary,
   getDocumentTitle,
   parseMarkdownDocument,
-  stripMachineOnlyMarkdownComments,
-  stripManagedIndexBlock,
 } from './core/markdown.js';
+import { getSearchableMarkdownBody, getSearchContentRevision } from './core/search-citations.js';
 import type { ParsedDocumentMeta } from './core/markdown.js';
 import { isIgnoredContentName } from './core/content-store.js';
 import { ensureTrailingSlash, trimLeadingSlash } from './core/site-url.js';
@@ -412,11 +411,13 @@ async function collectSearchDocuments(
 ): Promise<IndexbindBuildDocument[]> {
   const searchDocuments = await listSearchDocuments(rootDir);
   const documents: IndexbindBuildDocument[] = [];
+  const availablePaths = new Set(searchDocuments.map((document) => document.relativePath));
 
   for (const document of searchDocuments) {
+    if (!isCanonicalContentSource(document.relativePath, availablePaths)) continue;
     const markdown = await readFile(document.absolutePath, 'utf8');
     const parsed = await parseMarkdownDocument(document.relativePath, markdown);
-    if (parsed.meta.draft === true && options.draftMode === 'exclude') {
+    if ((parsed.meta.draft === true && options.draftMode === 'exclude') || parsed.meta.search === false) {
       continue;
     }
 
@@ -424,6 +425,7 @@ async function collectSearchDocuments(
     const absoluteCanonicalUrl = siteConfig.siteUrl
       ? new URL(trimLeadingSlash(canonicalPath), ensureTrailingSlash(siteConfig.siteUrl)).toString()
       : canonicalPath;
+    const content = getSearchableMarkdownBody(parsed.body);
     documents.push({
       docId: canonicalPath,
       sourcePath: document.absolutePath,
@@ -435,18 +437,15 @@ async function collectSearchDocuments(
         fallbackTitleFromRelativePath(document.relativePath),
       ),
       summary: getDocumentSummary(parsed.meta, parsed.body),
-      content: buildSearchableMarkdownBody(parsed.body),
-      metadata: buildSearchMetadata(document.relativePath, canonicalPath, parsed.meta, siteConfig),
+      content,
+      metadata: {
+        ...buildSearchMetadata(document.relativePath, canonicalPath, parsed.meta, siteConfig),
+        contentRevision: await getSearchContentRevision(content),
+      },
     });
   }
 
   return documents;
-}
-
-function buildSearchableMarkdownBody(markdownBody: string): string {
-  return stripMachineOnlyMarkdownComments(
-    stripManagedIndexBlock(markdownBody),
-  ).trim();
 }
 
 async function listSearchDocuments(rootDir: string): Promise<SearchDocument[]> {
@@ -624,6 +623,8 @@ function buildSearchMetadata(
   if (typeof meta.date === 'string') {
     metadata.date = meta.date;
   }
+  if (meta.updated) metadata.updated = meta.updated;
+  if (meta.author) metadata.author = meta.author;
 
   if (typeof meta.order === 'number') {
     metadata.order = meta.order;

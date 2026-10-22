@@ -26,6 +26,9 @@ export interface RenderDocumentOptions {
   body: string;
   summary?: string;
   date?: string;
+  robots?: string;
+  discoveryPath?: string;
+  structuredData?: Record<string, unknown>;
   showSummary?: boolean;
   showDate?: boolean;
   topNav?: SiteNavItem[];
@@ -41,6 +44,8 @@ export interface RenderDocumentOptions {
   listingRequestPath?: string;
   listingInitialPostCount?: number;
   listingLoadMoreStep?: number;
+  listingPage?: number;
+  listingPageCount?: number;
   searchEnabled?: boolean;
   /** Language switcher entries; rendered in the header when more than one is present. */
   languages?: PageLanguage[];
@@ -61,8 +66,8 @@ export function renderDocument(options: RenderDocumentOptions) {
     ? escapeHtml(options.siteDescription)
     : undefined;
   const socialDescription = options.summary ?? options.siteDescription;
-  const summaryMeta = options.summary
-    ? `<meta name="description" content="${escapeHtml(options.summary)}">`
+  const summaryMeta = socialDescription
+    ? `<meta name="description" content="${escapeHtml(socialDescription)}">`
     : '';
   const canonicalUrl =
     options.siteUrl && options.canonicalPath
@@ -226,6 +231,8 @@ export function renderDocument(options: RenderDocumentOptions) {
             requestPath: options.listingRequestPath ?? '/',
             initialPostCount: options.listingInitialPostCount ?? 10,
             loadMoreStep: options.listingLoadMoreStep ?? 10,
+            page: options.listingPage ?? 1,
+            pageCount: options.listingPageCount ?? 1,
           },
           messages,
         )
@@ -249,6 +256,9 @@ export function renderDocument(options: RenderDocumentOptions) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${title} | ${siteTitle}</title>`,
     summaryMeta,
+    options.robots ? `<meta name="robots" content="${escapeHtml(options.robots)}">` : '',
+    options.discoveryPath ? `<link rel="describedby" type="text/plain" href="${escapeHtml(options.discoveryPath)}">` : '',
+    options.structuredData ? `<script type="application/ld+json">${JSON.stringify(options.structuredData).replaceAll('<', '\\u003c').replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029')}</script>` : '',
     canonicalMeta,
     faviconMeta,
     socialMeta,
@@ -333,6 +343,8 @@ function renderListingArticle(
     requestPath: string;
     initialPostCount: number;
     loadMoreStep: number;
+    page: number;
+    pageCount: number;
   },
   messages: SiteMessages,
 ): string {
@@ -343,8 +355,13 @@ function renderListingArticle(
   const directories = entries.filter((entry) => entry.kind === 'directory');
   const articles = entries.filter((entry) => entry.kind === 'article');
   const initialPostCount = Math.max(1, options.initialPostCount);
-  const visibleArticles = articles.slice(0, initialPostCount);
-  const shouldLoadMore = articles.length > visibleArticles.length;
+  const offset = (options.page - 1) * initialPostCount;
+  const visibleArticles = articles.slice(offset, offset + initialPostCount);
+  const nextOffset = offset + visibleArticles.length;
+  const shouldLoadMore = articles.length > nextOffset;
+  const pageHref = (page: number) => escapeHtml(
+    page === 1 ? options.requestPath : `${options.requestPath}?page=${page}`,
+  );
 
   return [
     `<div class="catalog-page__body">${body}</div>`,
@@ -353,12 +370,19 @@ function renderListingArticle(
     articles.length > 0
       ? renderListingArticles(visibleArticles, {
           requestPath: options.requestPath,
-          nextOffset: visibleArticles.length,
+          nextOffset,
           loadMoreStep: options.loadMoreStep,
           hasMore: shouldLoadMore,
         }, messages)
       : '',
     '</section>',
+    options.pageCount > 1 ? [
+      '<nav class="catalog-pagination">',
+      options.page > 1 ? `<a rel="prev" href="${pageHref(options.page - 1)}">${escapeHtml(messages['listing.previousPage'])}</a>` : '',
+      ' ',
+      options.page < options.pageCount ? `<a rel="next" href="${pageHref(options.page + 1)}">${escapeHtml(messages['listing.nextPage'])}</a>` : '',
+      '</nav>',
+    ].join('') : '',
     shouldLoadMore ? renderListingLoadMoreScript(messages) : '',
   ].join('');
 }
@@ -548,7 +572,7 @@ function renderSearchScript(
     '      return;',
     '    }',
     '    results.innerHTML = hits.map((hit) => {',
-    '      const href = escapeHtmlForScript(hit.canonicalUrl || hit.docId || "#");',
+    '      const href = escapeHtmlForScript(hit.citationUrl || hit.canonicalUrl || hit.docId || "#");',
     '      const title = escapeHtmlForScript(hit.title || hit.relativePath || M.untitled);',
     '      const summary = typeof hit.summary === "string" ? `<span class="site-search__item-summary">${escapeHtmlForScript(hit.summary)}</span>` : "";',
     '      const excerpt = hit.bestMatch && typeof hit.bestMatch.excerpt === "string" ? `<span class="site-search__item-excerpt">${escapeHtmlForScript(hit.bestMatch.excerpt)}</span>` : "";',

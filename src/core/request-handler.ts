@@ -10,7 +10,7 @@ import {
   inferDirectoryContentType,
   resolveContentType,
 } from './content-type.js';
-import { getDirectoryIndexCandidates } from './directory-index.js';
+import { getDirectoryIndexCandidates, isCanonicalContentSource } from './directory-index.js';
 import {
   extractManagedIndexEntries,
   getDocumentSummary,
@@ -24,6 +24,8 @@ import {
   stripMachineOnlyMarkdownComments,
 } from './markdown.js';
 import { ensureTrailingSlash, trimLeadingSlash } from './site-url.js';
+import { buildPageStructuredData, serializePageRobots } from './seo.js';
+import { resolveSearchCitation } from './search-citations.js';
 import type {
   MdoPlugin,
   PageLanguage,
@@ -135,9 +137,32 @@ async function handleSiteRequestWithoutLocaleDetection(
     searchApi: options.searchApi,
     siteConfig: options.siteConfig,
     requestUrl: options.requestUrl,
+    resolveCitation: (hit) => resolveSearchCitation(store, hit, options.draftMode),
   });
   if (apiRoute !== null) {
     return apiRoute;
+  }
+
+  if (pathname === '/robots.txt') {
+    const custom = await store.get('robots.txt');
+    if (custom !== null) return serveAsset(custom);
+    const rules = options.siteConfig.robots?.rules ?? [];
+    const lines = rules.flatMap((rule) => [
+      `User-agent: ${rule.userAgent}`,
+      ...(rule.allow ?? []).map((href) => `Allow: ${href}`),
+      ...(rule.disallow ?? []).map((href) => `Disallow: ${href}`),
+      '',
+    ]);
+    if (options.siteConfig.siteUrl) lines.push(`Sitemap: ${options.siteConfig.siteUrl}/sitemap.xml`);
+    if (lines.length > 0) {
+      return { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: `${lines.join('\n')}\n` };
+    }
+  }
+
+  if (pathname === '/llms.txt') {
+    const custom = await store.get('llms.txt');
+    if (custom !== null) return serveAsset(custom);
+    if (options.siteConfig.llmsTxt) return renderLlmsDirectory(store, options);
   }
 
   if (pathname === '/sitemap.xml') {
@@ -246,6 +271,7 @@ async function handleSiteRequestWithoutLocaleDetection(
       headers: withVaryAcceptIfNeeded(
         {
           'content-type': entry.mediaType,
+          ...getContentResponseHeaders(resolved.sourcePath, parsed.meta, options.siteConfig),
         },
         negotiatedMarkdown,
       ),
@@ -299,6 +325,7 @@ async function handleSiteRequestWithoutLocaleDetection(
     requestLocale,
     draftMode: options.draftMode,
     varyOnAccept: shouldVaryOnAccept(resolved),
+    searchParams: options.searchParams,
   });
 }
 
@@ -353,6 +380,64 @@ function normalizePositiveInteger(value: string | null): number | null {
  */
 const SOCIAL_IMAGE_RESOLUTION_BASE = 'http://mdorigin.local';
 
+function getContentResponseHeaders(
+  sourcePath: string,
+  meta: ParsedDocumentMeta,
+  config: ResolvedSiteConfig,
+  canonicalPath = getCanonicalHtmlPathForContentPath(sourcePath),
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const robots = serializePageRobots(meta.robots);
+  if (robots) headers['x-robots-tag'] = robots;
+  const canonicalUrl = config.siteUrl
+    ? new URL(`${config.siteUrl}${canonicalPath}`).href
+    : encodeURI(canonicalPath);
+  const links = [`<${canonicalUrl}>; rel="canonical"`];
+  if (config.llmsTxt) links.push('</llms.txt>; rel="describedby"; type="text/plain"');
+  headers.link = links.join(', ');
+  return headers;
+}
+
+async function renderLlmsDirectory(
+  store: ContentStore,
+  options: HandleSiteRequestOptions,
+): Promise<SiteResponse> {
+  const entries = await collectSitemapEntries(store, '', { ...options, draftMode: 'exclude' });
+  const singleLine = (value: string) => value.replace(/[\r\n]/g, ' ').replace(/([\\[\]])/g, '\\$1').slice(0, 1000);
+  const lines = [
+    `# ${singleLine(options.siteConfig.siteTitle)}`,
+    '',
+    ...(options.siteConfig.siteDescription ? [`> ${singleLine(options.siteConfig.siteDescription)}`, ''] : []),
+    'Read pages as Markdown using the links below, or send Accept: text/markdown to their canonical HTML URLs.',
+    '',
+    '## Search',
+    '',
+    ...(options.searchApi ? ['- [Search API](/api/search): GET with a required q parameter.'] : []),
+    '- [OpenAPI](/api/openapi.json)',
+  ];
+  // A small discovery directory, never a full-content dump. Stable order and budget.
+  let section = '';
+  for (const entry of entries.slice(0, 200)) {
+    const locale = matchRequestLocale(entry.path, options.siteConfig.locales);
+    const prefix = locale?.pathPrefix ?? '';
+    const relative = entry.path.slice(prefix.length).replace(/^\//, '');
+    const group = `${locale?.code ?? options.siteConfig.locale ?? 'en'} / ${relative.split('/')[0] || 'Home'}`;
+    const href = encodeURI(`${options.siteConfig.siteUrl ?? ''}/${entry.sourcePath}`);
+    const additions = [
+      ...(group === section ? [] : ['', `## ${singleLine(group)}`, '']),
+      `- [${singleLine(entry.title)}](<${href.replaceAll('>', '%3E').replaceAll('<', '%3C')}>)`,
+    ];
+    if (new TextEncoder().encode(`${[...lines, ...additions].join('\n')}\n`).byteLength > 32_000) break;
+    section = group;
+    lines.push(...additions);
+  }
+  return {
+    status: 200,
+    headers: { 'content-type': 'text/plain; charset=utf-8' },
+    body: `${lines.join('\n')}\n`,
+  };
+}
+
 function resolvePageSocialImage(
   href: string | undefined,
   requestPath: string,
@@ -405,12 +490,9 @@ function buildPageRenderModel(options: {
     title: getDocumentTitle(options.parsed),
     meta: options.parsed.meta,
     bodyHtml: options.renderedBodyHtml,
-    summary:
-      options.siteConfig.showSummary === false
-        ? undefined
-        : getDocumentSummary(options.parsed.meta, options.parsed.body),
-    date:
-      options.siteConfig.showDate === false ? undefined : options.parsed.meta.date,
+    summary: getDocumentSummary(options.parsed.meta, options.parsed.body),
+    date: options.parsed.meta.date,
+    updated: options.parsed.meta.updated,
     showSummary: options.siteConfig.showSummary,
     showDate: options.siteConfig.showDate,
     topNav: options.topNav,
@@ -444,6 +526,7 @@ async function renderStructuredPage(options: {
   store: ContentStore;
   requestLocale: ResolvedLocaleConfig | null;
   draftMode: 'include' | 'exclude';
+  searchParams?: URLSearchParams;
 }): Promise<SiteResponse> {
   const localeConfig = options.requestLocale;
   const localeCode = localeConfig?.code ?? options.siteConfig.locale;
@@ -473,6 +556,19 @@ async function renderStructuredPage(options: {
     listingEntries: options.listingEntries,
     searchEnabled: options.searchEnabled,
   });
+  const rawPage = options.searchParams?.get('page') ?? '1';
+  const pageNumber = /^[1-9]\d*$/.test(rawPage) ? Number(rawPage) : NaN;
+  const pageSize = Math.max(1, page.listingInitialPostCount);
+  const articleCount = page.listingEntries.filter((entry) => entry.kind === 'article').length;
+  const pageCount = Math.max(1, Math.ceil(articleCount / pageSize));
+  if (!Number.isSafeInteger(pageNumber) || pageNumber > pageCount) return notFound();
+  page.listingPage = pageNumber;
+  page.listingPageCount = pageCount;
+  page.listingRequestPath = page.canonicalPath ?? options.requestPath;
+  if (pageNumber > 1) {
+    page.canonicalPath = `${page.canonicalPath}?page=${pageNumber}`;
+    page.title = `${page.title} — ${formatSiteMessage(messages['listing.pageLabel'], { page: String(pageNumber) })}`;
+  }
   const renderContext: RenderHookContext = {
     page,
     siteConfig: options.siteConfig,
@@ -501,6 +597,21 @@ async function renderStructuredPage(options: {
         body: currentPage.bodyHtml,
         summary: currentPage.summary,
         date: currentPage.date,
+        robots: serializePageRobots(currentPage.meta.robots),
+        discoveryPath: options.siteConfig.llmsTxt ? '/llms.txt' : undefined,
+        structuredData: options.siteConfig.structuredData ? buildPageStructuredData({
+          title: currentPage.title,
+          description: currentPage.summary ?? currentPage.siteDescription,
+          url: currentPage.siteUrl && currentPage.canonicalPath
+            ? `${currentPage.siteUrl}${currentPage.canonicalPath}` : undefined,
+          siteTitle: currentPage.siteTitle,
+          siteUrl: currentPage.siteUrl,
+          locale: htmlLang,
+          type: currentPage.meta.type,
+          date: currentPage.date,
+          updated: currentPage.updated,
+          author: currentPage.meta.author,
+        }) : undefined,
         showSummary: currentPage.showSummary,
         showDate: currentPage.showDate,
         topNav: currentPage.topNav,
@@ -516,6 +627,8 @@ async function renderStructuredPage(options: {
         listingRequestPath: currentPage.listingRequestPath,
         listingInitialPostCount: currentPage.listingInitialPostCount,
         listingLoadMoreStep: currentPage.listingLoadMoreStep,
+        listingPage: currentPage.listingPage,
+        listingPageCount: currentPage.listingPageCount,
         searchEnabled: currentPage.searchEnabled,
         languages: currentPage.languages,
         hreflangAlternates,
@@ -539,6 +652,7 @@ async function renderStructuredPage(options: {
     headers: withVaryAcceptIfNeeded(
       {
         'content-type': 'text/html; charset=utf-8',
+        ...getContentResponseHeaders(options.sourcePath, options.parsed.meta, options.siteConfig, page.canonicalPath),
       },
       options.varyOnAccept ?? false,
     ),
@@ -563,6 +677,7 @@ function renderListingPostsFragment(
     status: 200,
     headers: {
       'content-type': 'application/json; charset=utf-8',
+      'x-robots-tag': 'noindex',
     },
     body: JSON.stringify({
       itemsHtml: renderListingArticleItems(visibleArticles),
@@ -1234,6 +1349,8 @@ function getDocumentTitle(parsed: ParsedDocumentLite): string {
 
 interface SitemapEntry {
   path: string;
+  sourcePath: string;
+  title: string;
   lastmod?: string;
 }
 
@@ -1248,6 +1365,7 @@ async function collectSitemapEntries(
   }
 
   const sitemapEntries: SitemapEntry[] = [];
+  const availablePaths = new Set(entries.map((entry) => entry.path));
 
   for (const entry of entries) {
     if (entry.kind === 'directory') {
@@ -1267,13 +1385,16 @@ async function collectSitemapEntries(
     }
 
     const parsed = parseEntryDocumentMeta(document);
-    if (parsed.meta.draft === true && options.draftMode === 'exclude') {
+    if ((parsed.meta.draft === true && options.draftMode === 'exclude') || parsed.meta.robots?.index === false) {
       continue;
     }
 
+    if (!isCanonicalContentSource(entry.path, availablePaths)) continue;
     sitemapEntries.push({
       path: getCanonicalHtmlPathForContentPath(entry.path),
-      lastmod: parsed.meta.date,
+      sourcePath: entry.path,
+      title: getDocumentTitle(parsed),
+      lastmod: parsed.meta.updated ?? parsed.meta.date,
     });
   }
 
@@ -1311,6 +1432,7 @@ async function collectRssFeedItems(
 
   const feedItems: FeedItem[] = [];
   const directoryShape = inspectDirectoryShapeEntries(entries);
+  const availablePaths = new Set(entries.map((entry) => entry.path));
 
   for (const entry of entries) {
     if (entry.kind === 'directory') {
@@ -1333,10 +1455,11 @@ async function collectRssFeedItems(
     }
 
     const parsed = parseEntryDocumentMeta(document);
-    if (parsed.meta.draft === true && options.draftMode === 'exclude') {
+    if ((parsed.meta.draft === true && options.draftMode === 'exclude') || parsed.meta.robots?.index === false) {
       continue;
     }
 
+    if (!isCanonicalContentSource(entry.path, availablePaths)) continue;
     const pubDate = parseFeedDate(parsed.meta.date);
     if (pubDate === null) {
       continue;
@@ -1578,6 +1701,7 @@ async function tryRenderAlternateDirectoryIndex(
       // a raw markdown variant through Accept negotiation; the HTML variant
       // must therefore declare Vary: Accept like every other negotiated route.
       varyOnAccept: true,
+      searchParams: options.searchParams,
     });
   }
 
@@ -1621,6 +1745,7 @@ async function tryServeAlternateDirectoryMarkdown(
       headers: withVaryAcceptIfNeeded(
         {
           'content-type': entry.mediaType,
+          ...getContentResponseHeaders(candidatePath, parsed.meta, options.siteConfig),
         },
         true,
       ),

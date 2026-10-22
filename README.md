@@ -27,6 +27,12 @@ That means `mdorigin` should own content semantics, while page rendering remains
 
 ## Install
 
+Use a patched Node.js release: 22.23.4+, 24.22.1+, or 26.12.1+ within
+their supported even-numbered major lines. These are the minimum versions
+for the October 21, 2026 security release, not a guarantee against future issues.
+Development and CI use Node 24.22.1 from `.nvmrc` (`nvm install && nvm use`).
+An npm install does not upgrade the Node executable on your deployment host.
+
 ```bash
 npm install -g mdorigin
 ```

@@ -8,6 +8,7 @@ on:
       - '.github/workflows/deploy-cloudflare.yml'
       - 'package.json'
       - 'package-lock.json'
+      - '.nvmrc'
       - 'wrangler.jsonc'
       - 'src/**'
       - 'docs/site/**'
@@ -33,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version-file: '.nvmrc'
           cache: npm
 
       - name: Install dependencies

@@ -127,7 +127,7 @@ test('handleSiteRequest renders html and preserves markdown', async () => {
     siteConfig: TEST_SITE_CONFIG,
   });
   assert.equal(defaultHtmlResponse.status, 200);
-  assert.match(String(defaultHtmlResponse.body), /<h1>Post<\/h1>/);
+  assert.match(String(defaultHtmlResponse.body), /<h1 id="post">Post<\/h1>/);
   assert.match(String(defaultHtmlResponse.body), /Test Site/);
   assert.match(String(defaultHtmlResponse.body), /href="\.\/guide"/);
   assert.match(String(defaultHtmlResponse.body), /href="\.\/"/);
@@ -404,7 +404,7 @@ test('handleSiteRequest keeps explicit html routes as html even when markdown is
   assert.equal(response.status, 200);
   assert.equal(response.headers['content-type'], 'text/html; charset=utf-8');
   assert.equal(response.headers.vary, undefined);
-  assert.match(String(response.body), /<h1>Post<\/h1>/);
+  assert.match(String(response.body), /<h1 id="post">Post<\/h1>/);
 });
 
 test('handleSiteRequest filters drafts in exclude mode', async () => {
@@ -1267,7 +1267,7 @@ test('handleSiteRequest respects site config rendering options', async () => {
   assert.match(String(response.body), /site-footer__nav/);
   assert.match(String(response.body), /Footer note/);
   assert.match(String(response.body), /Edit this page/);
-  assert.doesNotMatch(String(response.body), /Hidden summary/);
+  assert.match(String(response.body), /<meta name="description" content="Hidden summary">/);
   assert.doesNotMatch(String(response.body), /2026-03-20/);
 });
 
@@ -1392,7 +1392,7 @@ test('handleSiteRequest uses skill metadata fallbacks and serves script files as
   assert.match(String(scriptResponse.body), /echo install/);
 });
 
-test('handleSiteRequest renders yaml dates parsed as Date objects', async () => {
+test('handleSiteRequest normalizes unquoted YAML dates', async () => {
   const store = new MemoryContentStore([
     {
       path: 'dated.md',
@@ -1409,7 +1409,7 @@ test('handleSiteRequest renders yaml dates parsed as Date objects', async () => 
 
   assert.equal(response.status, 200);
   assert.match(String(response.body), /<title>Dated Post \| Test Site<\/title>/);
-  assert.match(String(response.body), /<h1>Dated<\/h1>/);
+  assert.match(String(response.body), /<h1 id="dated">Dated<\/h1>/);
 });
 
 test('handleSiteRequest renders managed index blocks with default listing layout', async () => {
@@ -1451,7 +1451,7 @@ test('handleSiteRequest renders managed index blocks with default listing layout
   });
 
   assert.equal(response.status, 200);
-  assert.match(String(response.body), /<h1>Catalog Home<\/h1>/);
+  assert.match(String(response.body), /<h1 id="catalog-home">Catalog Home<\/h1>/);
   assert.equal((String(response.body).match(/<h1/g) ?? []).length, 1);
   assert.match(String(response.body), /Body paragraph\./);
   assert.match(String(response.body), /<a class="catalog-item catalog-item--directory" href="\.\/guides\/">/);
