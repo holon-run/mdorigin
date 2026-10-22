@@ -422,7 +422,8 @@ async function renderLlmsDirectory(
     const prefix = locale?.pathPrefix ?? '';
     const relative = entry.path.slice(prefix.length).replace(/^\//, '');
     const group = `${locale?.code ?? options.siteConfig.locale ?? 'en'} / ${relative.split('/')[0] || 'Home'}`;
-    const href = encodeURI(`${options.siteConfig.siteUrl ?? ''}/${entry.sourcePath}`);
+    const encodedPath = entry.sourcePath.split('/').map(encodeURIComponent).join('/');
+    const href = `${options.siteConfig.siteUrl ?? ''}/${encodedPath}`;
     const additions = [
       ...(group === section ? [] : ['', `## ${singleLine(group)}`, '']),
       `- [${singleLine(entry.title)}](<${href.replaceAll('>', '%3E').replaceAll('<', '%3C')}>)`,
@@ -539,7 +540,6 @@ async function renderStructuredPage(options: {
     options.siteConfig,
     options.draftMode,
   );
-  const hreflangAlternates = buildHreflangAlternates(languages, options.siteConfig);
   const searchLocaleFilter = buildSearchLocaleFilter(options.siteConfig, localeConfig);
   const page = buildPageRenderModel({
     resolvedRequestPath: options.requestPath,
@@ -562,6 +562,11 @@ async function renderStructuredPage(options: {
   const articleCount = page.listingEntries.filter((entry) => entry.kind === 'article').length;
   const pageCount = Math.max(1, Math.ceil(articleCount / pageSize));
   if (!Number.isSafeInteger(pageNumber) || pageNumber > pageCount) return notFound();
+  // Translated catalogs can differ in length and ordering; later pages are not
+  // verified language equivalents, even when both locales have that page number.
+  const hreflangAlternates = pageNumber === 1
+    ? buildHreflangAlternates(languages, options.siteConfig)
+    : [];
   page.listingPage = pageNumber;
   page.listingPageCount = pageCount;
   page.listingRequestPath = page.canonicalPath ?? options.requestPath;

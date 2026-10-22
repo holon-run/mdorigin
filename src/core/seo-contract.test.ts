@@ -103,6 +103,31 @@ test('sitemap modification dates and agent discovery exclude unpublished and noi
   assert.equal(disabled.status, 404);
 });
 
+test('agent discovery encodes reserved characters in each source path segment', async () => {
+  const paths = [
+    'C# tutorial.md', 'what?now.md', '100% done.md', 'literal%23.md',
+    '中文/教程 #1?.md', 'nested?/a[b](c)<d>.md',
+  ];
+  const store = new MemoryContentStore(paths.map((path) => entry(path, '# Guide')));
+  for (const siteUrl of [config.siteUrl, undefined]) {
+    const options = { draftMode: 'exclude' as const, siteConfig: { ...config, siteUrl, llmsTxt: true } };
+    const result = await handleSiteRequest(store, '/llms.txt', options);
+    assert.equal(result.status, 200);
+    const links = [...String(result.body).matchAll(/\]\(<([^>]+)>\)/g)].map((match) => match[1]);
+    assert.equal(links.length, paths.length);
+    for (const path of paths) {
+      const encodedPath = `/${path.split('/').map(encodeURIComponent).join('/')}`;
+      assert.ok(links.includes(`${siteUrl ?? ''}${encodedPath}`), path);
+      const url = new URL(`${siteUrl ?? ''}${encodedPath}`, 'https://example.com');
+      assert.equal(url.hash, '');
+      assert.equal(url.search, '');
+      const raw = await handleSiteRequest(store, url.pathname, options);
+      assert.equal(raw.status, 200, path);
+      assert.match(raw.headers['content-type'], /text\/markdown/);
+    }
+  }
+});
+
 test('user-owned discovery files win; crawler training policy requires explicit configuration', async () => {
   const custom = new MemoryContentStore([entry('robots.txt', 'custom robots'), entry('llms.txt', 'custom llms')]);
   for (const file of ['robots', 'llms']) {
@@ -185,6 +210,46 @@ test('no-JS pagination traverses every article with self canonicals and real pre
   });
   assert.equal(fragment.headers['x-robots-tag'], 'noindex');
   assert.match(fragment.headers['content-type'], /application\/json/);
+});
+
+test('paginated locale catalogs omit unverified hreflang equivalents after page one', async () => {
+  const catalog = (count: number) => [
+    '# Blog', '', '<!-- INDEX:START -->',
+    ...Array.from({ length: count }, (_, index) => `- [Post ${index}](./post-${index}.md)\n`),
+    '<!-- INDEX:END -->',
+  ].join('\n');
+  for (const translatedCount of [2, 5]) {
+    const store = new MemoryContentStore([
+      entry('blog/README.md', catalog(5)),
+      entry('zh-CN/blog/README.md', catalog(translatedCount)),
+    ]);
+    const siteConfig = {
+      ...config,
+      locales: [
+        { code: 'en', label: 'English', pathPrefix: '', contentBase: '', isDefault: true, messages: {}, topNav: [], footerNav: [] },
+        { code: 'zh-CN', label: '中文', pathPrefix: '/zh-CN', contentBase: 'zh-CN', isDefault: false, messages: {}, topNav: [], footerNav: [] },
+      ],
+    };
+    for (const [path, count] of [['/blog/', 5], ['/zh-CN/blog/', translatedCount]] as const) {
+      for (let page = 1; page <= Math.ceil(count / 2); page++) {
+        const response = await handleSiteRequest(store, path, {
+          draftMode: 'exclude', siteConfig, searchParams: new URLSearchParams({ page: String(page) }),
+        });
+        assert.equal(response.status, 200);
+        const html = String(response.body);
+        const canonical = `https://example.com${path}${page === 1 ? '' : `?page=${page}`}`;
+        assert.ok(html.includes(`<link rel="canonical" href="${canonical}">`));
+        assert.ok(response.headers.link.includes(`<${canonical}>`));
+        if (page === 1) {
+          for (const language of ['en', 'zh-CN', 'x-default']) {
+            assert.ok(html.includes(`<link rel="alternate" hreflang="${language}"`));
+          }
+        } else {
+          assert.equal(html.includes('<link rel="alternate" hreflang='), false, `${path}?page=${page}`);
+        }
+      }
+    }
+  }
 });
 
 test('optional structured data shares normalized identity without inventing authors or dates', async () => {
