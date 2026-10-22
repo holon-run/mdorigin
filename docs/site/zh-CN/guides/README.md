@@ -3,6 +3,7 @@ title: 指南
 type: page
 order: 10
 date: 2026-03-20
+updated: 2026-10-22
 summary: 面向预览、索引与部署的分步操作指南。
 ---
 
@@ -24,6 +25,10 @@ summary: 面向预览、索引与部署的分步操作指南。
 
 - [Cloudflare 部署](./cloudflare.md)
   2026-03-20 · 构建用户项目的 Worker 包并初始化 Wrangler 配置。
+  <!-- mdorigin:index kind=article -->
+
+- [搜索与 agent 发现](./search-discovery.md)
+  索引控制、规范内容表示与可验证的章节引用。
   <!-- mdorigin:index kind=article -->
 
 <!-- INDEX:END -->

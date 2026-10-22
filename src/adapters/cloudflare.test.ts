@@ -71,7 +71,7 @@ test('cloudflare worker serves html and hides drafts', async () => {
   const homeResponse = await worker.fetch(new Request('https://example.com/'));
   assert.equal(homeResponse.status, 200);
   const homeHtml = await homeResponse.text();
-  assert.match(homeHtml, /<h1>Hello<\/h1>/);
+  assert.match(homeHtml, /<h1 id="hello">Hello<\/h1>/);
   assert.match(homeHtml, /Worker Test/);
   assert.match(homeHtml, /font-family: serif/);
 
@@ -84,7 +84,7 @@ test('cloudflare worker serves html and hides drafts', async () => {
     new Request('https://example.com/posts/foo'),
   );
   assert.equal(defaultRouteResponse.status, 200);
-  assert.match(await defaultRouteResponse.text(), /<h1>Foo<\/h1>/);
+  assert.match(await defaultRouteResponse.text(), /<h1 id="foo">Foo<\/h1>/);
 
   const listingResponse = await worker.fetch(
     new Request('https://example.com/browse/'),
@@ -168,7 +168,7 @@ test('cloudflare worker adds cache headers and serves 304 for deploy-versioned b
     }),
   );
   assert.equal(staleResponse.status, 200);
-  assert.match(await staleResponse.text(), /<h1>Hello<\/h1>/);
+  assert.match(await staleResponse.text(), /<h1 id="hello">Hello<\/h1>/);
 
   // Explicit .md paths have one deterministic variant and may enter the CDN cache.
   const markdownResponse = await worker.fetch(
@@ -701,7 +701,7 @@ test('cloudflare worker uses the injected cache as per-colo L2 storage', async (
   // With the isolate cache disabled, the repeat request is served from L2.
   const second = await worker.fetch(new Request('https://example.com/'));
   assert.equal(second.status, 200);
-  assert.match(await second.text(), /<h1>Hello<\/h1>/);
+  assert.match(await second.text(), /<h1 id="hello">Hello<\/h1>/);
   assert.equal(
     second.headers.get('cache-control'),
     'public, max-age=120, stale-while-revalidate=604800',

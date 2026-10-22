@@ -1,4 +1,5 @@
 import matter from 'gray-matter';
+import yaml from 'js-yaml';
 import { remark } from 'remark';
 import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
@@ -6,11 +7,17 @@ import rehypeRaw from 'rehype-raw';
 import rehypeStringify from 'rehype-stringify';
 
 import type { ContentEntry } from './content-store.js';
+import { normalizeContentDate, normalizePageRobots, type PageRobots } from './seo.js';
 
 export interface ParsedDocumentMeta {
   title?: string;
   name?: string;
   date?: string;
+  updated?: string;
+  author?: string | string[];
+  robots?: PageRobots;
+  /** Independent of external search indexing; false excludes this document from site search. */
+  search?: boolean;
   summary?: string;
   description?: string;
   draft?: boolean;
@@ -46,6 +53,23 @@ export interface ParsedDocumentLite {
 
 export interface ParsedDocument extends ParsedDocumentLite {
   html: string;
+}
+
+export interface MarkdownHeading {
+  id: string;
+  text: string;
+  depth: number;
+  /** Offset in the exact Markdown string passed to the renderer. */
+  charStart: number;
+}
+
+interface HtmlNode {
+  type?: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: HtmlNode[];
+  position?: { start?: { offset?: number } };
 }
 
 export function getDocumentTitle(meta: ParsedDocumentMeta, body: string, fallback: string): string {
@@ -85,7 +109,11 @@ export function parseDocumentMeta(
   sourcePath: string,
   markdown: string,
 ): ParsedDocumentLite {
-  const parsed = matter(markdown);
+  const parsed = matter(markdown, {
+    engines: {
+      yaml: (source: string) => yaml.safeLoad(source, { schema: FRONTMATTER_SCHEMA }) as object,
+    },
+  });
 
   return {
     sourcePath,
@@ -114,14 +142,66 @@ export function parseEntryDocumentMeta(entry: ContentEntry): ParsedDocumentLite 
 }
 
 export async function renderMarkdown(markdown: string): Promise<string> {
+  return (await renderMarkdownWithHeadings(markdown)).html;
+}
+
+export async function renderMarkdownWithHeadings(
+  markdown: string,
+): Promise<{ html: string; headings: MarkdownHeading[] }> {
+  const headings: MarkdownHeading[] = [];
   const output = await remark()
     .use(remarkGfm)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
+    .use(() => (tree: unknown) => assignHeadingIds(tree as HtmlNode, headings))
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(markdown);
 
-  return String(output);
+  return { html: String(output), headings };
+}
+
+function assignHeadingIds(root: HtmlNode, headings: MarkdownHeading[]): void {
+  const reserved = new Set<string>();
+  const seen = new Set<string>();
+  const visit = (node: HtmlNode, callback: (node: HtmlNode) => void) => {
+    callback(node);
+    for (const child of node.children ?? []) visit(child, callback);
+  };
+  visit(root, (node) => {
+    if (typeof node.properties?.id === 'string') reserved.add(node.properties.id);
+  });
+  const unique = (base: string) => {
+    let id = base;
+    let suffix = 0;
+    while (reserved.has(id)) id = `${base}-${++suffix}`;
+    reserved.add(id);
+    return id;
+  };
+  const text = (node: HtmlNode): string =>
+    node.type === 'comment' ? '' :
+      node.value ?? (node.tagName === 'img' ? String(node.properties?.alt ?? '') : (node.children ?? []).map(text).join(''));
+  visit(root, (node) => {
+    let id = typeof node.properties?.id === 'string' ? node.properties.id : undefined;
+    if (id !== undefined) {
+      if (seen.has(id)) {
+        id = unique(id);
+        node.properties!.id = id;
+      }
+      seen.add(id);
+    }
+    if (!/^h[1-6]$/.test(node.tagName ?? '')) return;
+    const label = text(node);
+    if (!id) {
+      const slug = label.normalize('NFKC').toLowerCase().trim()
+        .replace(/\s+/g, '-').replace(/[^\p{L}\p{N}\p{M}_-]/gu, '') || 'section';
+      id = unique(slug);
+      node.properties = { ...node.properties, id };
+    }
+    const offset = node.position?.start?.offset;
+    if (typeof offset === 'number') {
+      headings.push({ id, text: label, depth: Number(node.tagName![1]), charStart: offset });
+    }
+  });
 }
 
 export function rewriteMarkdownLinksInHtml(html: string): string {
@@ -245,6 +325,19 @@ function extractManagedIndexDetail(lines: readonly string[]): string | undefined
   return undefined;
 }
 
+// Preserve YAML timestamp spelling until our calendar/timezone validator runs.
+// The default YAML Date constructor silently rolls e.g. February 30 into March.
+const RAW_TIMESTAMP = new yaml.Type('tag:yaml.org,2002:timestamp', {
+  kind: 'scalar',
+  resolve: (value: string) => /^\d{4}-\d{1,2}-\d{1,2}(?:$|[Tt\s])/.test(value),
+  construct: (value: string) => value,
+});
+const FRONTMATTER_SCHEMA = new yaml.Schema({
+  include: [yaml.DEFAULT_SAFE_SCHEMA],
+  implicit: [RAW_TIMESTAMP],
+  explicit: [RAW_TIMESTAMP],
+});
+
 function normalizeMeta(data: Record<string, unknown>): ParsedDocumentMeta {
   const meta: ParsedDocumentMeta = { ...data };
 
@@ -256,13 +349,19 @@ function normalizeMeta(data: Record<string, unknown>): ParsedDocumentMeta {
     meta.name = data.name;
   }
 
-  if (typeof data.date === 'string') {
-    meta.date = data.date;
+  for (const key of ['date', 'updated'] as const) {
+    const normalized = normalizeContentDate(data[key]);
+    if (normalized === undefined) delete meta[key];
+    else meta[key] = normalized;
   }
-
-  if (data.date instanceof Date && !Number.isNaN(data.date.getTime())) {
-    meta.date = data.date.toISOString().slice(0, 10);
-  }
+  meta.robots = normalizePageRobots(data.robots);
+  if (data.noindex === true) meta.robots = { ...meta.robots, index: false };
+  if (typeof data.author === 'string' && data.author.trim()) meta.author = data.author.trim();
+  else if (Array.isArray(data.author)) meta.author = data.author.filter(
+    (author): author is string => typeof author === 'string' && author.trim().length > 0,
+  ).map((author) => author.trim());
+  else delete meta.author;
+  if (typeof data.search !== 'boolean') delete meta.search;
 
   if (typeof data.summary === 'string') {
     meta.summary = data.summary;

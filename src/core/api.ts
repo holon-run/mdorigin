@@ -5,6 +5,7 @@ export interface ApiRouteOptions {
   searchApi?: SearchApi;
   siteConfig: ResolvedSiteConfig;
   requestUrl?: string;
+  resolveCitation?: (hit: SearchHit) => Promise<string | undefined>;
 }
 
 export interface ApiRouteResponse {
@@ -48,7 +49,9 @@ export async function handleApiRoute(
       topK,
       metadata,
       count: hits.length,
-      hits: hits.map(serializeSearchHit),
+      hits: await Promise.all(hits.map(async (hit) => serializeSearchHit(
+        hit, await options.resolveCitation?.(hit),
+      ))),
     });
   }
 
@@ -128,6 +131,10 @@ function buildOpenApiDocument(options: ApiRouteOptions) {
                             docId: { type: 'string' },
                             relativePath: { type: 'string' },
                             canonicalUrl: { type: 'string' },
+                            citationUrl: {
+                              type: 'string',
+                              description: 'A rendered heading URL when a source-offset mapping is available; canonicalUrl stays page-level.',
+                            },
                             title: { type: 'string' },
                             summary: { type: 'string' },
                             score: { type: 'number' },
@@ -199,11 +206,12 @@ function readSearchMetadataFilters(
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
-function serializeSearchHit(hit: SearchHit) {
+function serializeSearchHit(hit: SearchHit, citationUrl?: string) {
   return {
     docId: hit.docId,
     relativePath: hit.relativePath,
     canonicalUrl: hit.canonicalUrl,
+    ...(citationUrl ? { citationUrl } : {}),
     title: hit.title,
     summary: hit.summary,
     metadata: hit.metadata,

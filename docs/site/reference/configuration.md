@@ -2,6 +2,7 @@
 title: Configuration
 order: 10
 date: 2026-03-20
+updated: 2026-10-22
 summary: Site-level configuration fields and their behavior.
 ---
 
@@ -28,6 +29,9 @@ Useful fields:
 - `siteUrl`
 - `favicon`
 - `socialImage`
+- `robots`
+- `llmsTxt`
+- `structuredData`
 - `logo`
 - `topNav`
 - `footerNav`
@@ -448,6 +452,23 @@ Rules:
 - `showDate` controls whether parsed markdown dates are surfaced in rendered HTML where the default presentation uses them
 - `showSummary` controls whether configured summaries are surfaced in rendered HTML where the default presentation uses them
 - both flags default to `true`
+- these are presentation flags, not metadata filters: page summaries and dates remain available to hooks, search/social metadata, and optional structured data
+- the default template renders the Markdown body as authored; it does not automatically insert a second summary or date block
+
+## Search Discovery and Indexing
+
+See [Search and agent discovery](../guides/search-discovery.md) for the full workflow.
+
+- `robots.rules` explicitly configures crawler groups; a content-root `robots.txt` takes precedence
+- a configured `siteUrl` adds a generated Sitemap declaration unless a custom file wins; no training-bot policy is selected automatically
+- `llmsTxt: true` enables a concise `/llms.txt` directory, grouped by content locale/section; it defaults to off and a user file always wins
+- `structuredData: true` enables JSON-LD: explicit `type: post` uses `BlogPosting`; other pages use `WebPage`. Missing author/date values are omitted
+- frontmatter `robots` accepts `index`/`follow` booleans, `maxSnippet`/`maxVideoPreview` integers of -1 or greater, and `maxImagePreview` (`none`, `standard`, `large`). A comma-separated string using standard directive names also works
+- `noindex: true` is shorthand for `robots.index: false`; these pages stay accessible but are omitted from sitemap, feeds, and generated agent directories
+- frontmatter `search: false` independently excludes a page from the next site-search build. `noindex` alone does not exclude site search and is not access control
+- frontmatter `updated` is the last substantive content update; `date` is publication time. Use real ISO dates or timestamps with a timezone. Sitemap `lastmod` prefers valid `updated`, then valid `date`, otherwise it is omitted. Deployment time is never substituted
+- generated heading IDs support section links. Search API `citationUrl` is optional, is validated against current content, and does not change page-level `canonicalUrl`. Rebuild the search bundle to enable citations on an old index
+- `?page=2` and subsequent listing pages have self canonicals and real previous/next links, while JavaScript load-more remains an enhancement
 
 ## Aliases
 

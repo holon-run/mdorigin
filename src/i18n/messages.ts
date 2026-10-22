@@ -20,6 +20,9 @@ export interface SiteMessages {
   'listing.loading': string;
   'listing.ariaLabel': string;
   'listing.emptyDirectory': string;
+  'listing.pageLabel': string;
+  'listing.previousPage': string;
+  'listing.nextPage': string;
   'error.notFoundTitle': string;
   'error.notFoundBody': string;
 }
@@ -54,6 +57,9 @@ const enMessages: SiteMessages = {
   'listing.loading': 'Loading...',
   'listing.ariaLabel': 'Content listing',
   'listing.emptyDirectory': 'This directory is empty.',
+  'listing.pageLabel': 'Page {page}',
+  'listing.previousPage': 'Previous page',
+  'listing.nextPage': 'Next page',
   'error.notFoundTitle': 'Not Found',
   'error.notFoundBody': 'No page was published at <code>{path}</code>.',
 };
@@ -80,6 +86,9 @@ const zhCnMessages: SiteMessages = {
   'listing.loading': '加载中...',
   'listing.ariaLabel': '内容列表',
   'listing.emptyDirectory': '此目录为空。',
+  'listing.pageLabel': '第 {page} 页',
+  'listing.previousPage': '上一页',
+  'listing.nextPage': '下一页',
   'error.notFoundTitle': '未找到',
   'error.notFoundBody': '没有页面发布在 <code>{path}</code>。',
 };

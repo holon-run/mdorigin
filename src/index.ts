@@ -14,3 +14,4 @@ export type {
   IndexTransformContext,
 } from './core/extensions.js';
 export type { ParsedDocumentMeta } from './core/markdown.js';
+export type { PageRobots, SiteRobots, RobotsRule } from './core/seo.js';

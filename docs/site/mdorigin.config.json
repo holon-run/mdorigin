@@ -22,6 +22,8 @@
   },
   "showDate": true,
   "showSummary": true,
+  "llmsTxt": true,
+  "structuredData": true,
   "socialLinks": [
     { "icon": "github", "label": "GitHub", "href": "https://github.com/holon-run/mdorigin" },
     { "icon": "npm", "label": "npm", "href": "https://www.npmjs.com/package/mdorigin" }
