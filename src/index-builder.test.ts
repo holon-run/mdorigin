@@ -77,6 +77,11 @@ test('legacy space-separated datetimes keep articles dated and sorted', async ()
     'utf8',
   );
   await writeFile(
+    path.join(rootDir, 'tz.md'),
+    ['---', 'title: TZ Post', 'date: "2026-10-21 02:00:00+08:00"', '---', '', '# TZ'].join('\n'),
+    'utf8',
+  );
+  await writeFile(
     path.join(rootDir, 'guide.md'),
     ['---', 'title: Guide', '---', '', '# Guide'].join('\n'),
     'utf8',
@@ -88,6 +93,12 @@ test('legacy space-separated datetimes keep articles dated and sorted', async ()
   assert.ok(block.indexOf('Older Post') < block.indexOf('Guide'));
   assert.match(block, /2026-10-20/);
   assert.doesNotMatch(block, /undefined/);
+  assert.match(block, /\[Newer Post\]\(\.\/newer\.md\)[\s\S]*?2026-10-20 19:00/);
+  assert.match(block, /\[TZ Post\]\(\.\/tz\.md\)[\s\S]*?2026-10-20 18:00/);
+  assert.match(block, /\[Older Post\]\(\.\/older\.md\)[\s\S]*?2024-01-03 08:30/);
+  assert.doesNotMatch(block, /T\d{2}:\d{2}:\d{2}|\.000Z/);
+  assert.ok(block.indexOf('TZ Post') > block.indexOf('Newer Post'));
+  assert.ok(block.indexOf('TZ Post') < block.indexOf('Older Post'));
 });
 
 test('buildManagedIndexBlock applies transformIndex plugins', async () => {

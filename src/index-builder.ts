@@ -233,7 +233,9 @@ export async function buildManagedIndexBlock(
           kind: 'article',
           title: entry.title,
           href: entry.link,
-          detail: [entry.date, entry.summary].filter(Boolean).join(' · ') || undefined,
+          detail:
+            [formatIndexEntryDate(entry.date), entry.summary].filter(Boolean).join(' · ') ||
+            undefined,
         }),
       ),
     ],
@@ -274,6 +276,18 @@ export function upsertManagedIndexBlock(
   }
 
   return `${trimmed}\n\n${block}\n`;
+}
+
+/**
+ * Managed index lines are human-facing. Date-only values keep their authored
+ * spelling, while normalized UTC timestamps render as `YYYY-MM-DD HH:mm`
+ * instead of raw ISO. Sorting still compares the normalized meta.date values.
+ */
+function formatIndexEntryDate(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(value);
+  return match ? `${match[1]} ${match[2]}` : value;
 }
 
 function renderManagedIndexBlock(entries: ManagedIndexEntry[]): string {
