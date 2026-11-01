@@ -109,17 +109,22 @@ export function parseDocumentMeta(
   sourcePath: string,
   markdown: string,
 ): ParsedDocumentLite {
-  const parsed = matter(markdown, {
-    engines: {
-      yaml: (source: string) => yaml.safeLoad(source, { schema: FRONTMATTER_SCHEMA }) as object,
-    },
-  });
+  const parsed = parseMarkdownFrontmatter(markdown);
 
   return {
     sourcePath,
     body: parsed.content,
     meta: normalizeMeta(parsed.data),
   };
+}
+
+/** Read original scalar values without applying page metadata normalization. */
+export function parseMarkdownFrontmatter(markdown: string) {
+  return matter(markdown, {
+    engines: {
+      yaml: (source: string) => yaml.safeLoad(source, { schema: FRONTMATTER_SCHEMA }) as object,
+    },
+  });
 }
 
 const entryDocumentMetaCache = new WeakMap<ContentEntry, ParsedDocumentLite>();

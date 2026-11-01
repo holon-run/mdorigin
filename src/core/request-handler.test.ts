@@ -515,6 +515,52 @@ test('handleSiteRequest renders sitemap.xml with canonical html urls', async () 
   assert.match(body, /<lastmod>2026-03-21<\/lastmod>/);
 });
 
+test('handleSiteRequest normalizes sitemap dates without shifting calendar days', async () => {
+  const cases = [
+    { date: "'2026-03-05 02:33:43'", expected: '2026-03-05' },
+    { date: '2026-03-05 02:33:43', expected: '2026-03-05' },
+    { date: "'2026-03-05T02:33'", expected: '2026-03-05' },
+    { date: "'2026-03-05T00:15:00+14:00'", expected: '2026-03-05' },
+    { date: "'2026-03-05T23:45:00-12:00'", expected: '2026-03-05' },
+    { date: "'2024-02-29 12:34:56.123'", expected: '2024-02-29' },
+    { date: "'not a date'", expected: undefined },
+    { date: "'2026-02-30 12:00:00'", expected: undefined },
+    { date: "'2026-03-05 24:00:00'", expected: undefined },
+    { date: "'2026-03-05 02:60:00'", expected: undefined },
+    { date: "'2026-03-05 02:33:60'", expected: undefined },
+    { date: "'2026-03-05 garbage'", expected: undefined },
+    { date: '12345', expected: undefined },
+    { date: undefined, expected: undefined },
+    { date: '2026-03-05', updated: "'2026-03-07 02:33:43'", expected: '2026-03-07' },
+    { date: "'2026-03-05 02:33:43'", updated: "'invalid'", expected: '2026-03-05' },
+  ];
+  const store = new MemoryContentStore(cases.map(({ date, updated }, index) => ({
+    path: `post-${index}.md`,
+    kind: 'text' as const,
+    mediaType: 'text/markdown; charset=utf-8',
+    text: [
+      '---',
+      ...(date === undefined ? [] : [`date: ${date}`]),
+      ...(updated === undefined ? [] : [`updated: ${updated}`]),
+      '---', '', '# Post',
+    ].join('\n'),
+  })));
+  const response = await handleSiteRequest(store, '/sitemap.xml', {
+    draftMode: 'exclude',
+    siteConfig: { ...TEST_SITE_CONFIG, siteUrl: 'https://example.com' },
+  });
+
+  assert.equal(response.status, 200);
+  const body = String(response.body);
+  for (const [index, { expected }] of cases.entries()) {
+    const lastmod = expected === undefined ? '' : `<lastmod>${expected}</lastmod>`;
+    assert.ok(
+      body.includes(`<url><loc>https://example.com/post-${index}</loc>${lastmod}</url>`),
+      `unexpected lastmod for case ${index}: ${JSON.stringify(cases[index])}`,
+    );
+  }
+});
+
 test('handleSiteRequest returns an error for sitemap.xml when siteUrl is missing', async () => {
   const response = await handleSiteRequest(new MemoryContentStore([]), '/sitemap.xml', {
     draftMode: 'exclude',

@@ -84,7 +84,7 @@ test('sitemap modification dates and agent discovery exclude unpublished and noi
   ]);
   const options = { draftMode: 'exclude' as const, siteConfig: { ...config, llmsTxt: true } };
   const sitemap = await handleSiteRequest(store, '/sitemap.xml', options);
-  assert.match(String(sitemap.body), /<lastmod>2026-10-21T07:30:00.000Z<\/lastmod>/);
+  assert.match(String(sitemap.body), /<lastmod>2026-10-21<\/lastmod>/);
   assert.match(String(sitemap.body), /<lastmod>2026-02-01<\/lastmod>/);
   assert.doesNotMatch(String(sitemap.body), /hidden|draft|invalid|<lastmod>bad/);
   const llms = await handleSiteRequest(store, '/llms.txt', { ...options, draftMode: 'include' });

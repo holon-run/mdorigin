@@ -19,12 +19,13 @@ import {
   type ParsedDocumentMeta,
   parseEntryDocumentMeta,
   parseMarkdownDocument,
+  parseMarkdownFrontmatter,
   stripManagedIndexBlock,
   stripManagedIndexLinks,
   stripMachineOnlyMarkdownComments,
 } from './markdown.js';
 import { ensureTrailingSlash, trimLeadingSlash } from './site-url.js';
-import { buildPageStructuredData, serializePageRobots } from './seo.js';
+import { buildPageStructuredData, normalizeContentDate, serializePageRobots } from './seo.js';
 import { resolveSearchCitation } from './search-citations.js';
 import type {
   MdoPlugin,
@@ -1359,6 +1360,16 @@ interface SitemapEntry {
   lastmod?: string;
 }
 
+function normalizeSitemapDate(value: unknown): string | undefined {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return undefined;
+  // Keep the author's calendar day, even for legacy timestamps without a timezone.
+  const match = /^(\d{4}-\d{2}-\d{2})(?:[ T](?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?)?$/.exec(value);
+  return match ? normalizeContentDate(match[1]) : undefined;
+}
+
 async function collectSitemapEntries(
   store: ContentStore,
   directoryPath: string,
@@ -1395,11 +1406,12 @@ async function collectSitemapEntries(
     }
 
     if (!isCanonicalContentSource(entry.path, availablePaths)) continue;
+    const { data } = parseMarkdownFrontmatter(document.text);
     sitemapEntries.push({
       path: getCanonicalHtmlPathForContentPath(entry.path),
       sourcePath: entry.path,
       title: getDocumentTitle(parsed),
-      lastmod: parsed.meta.updated ?? parsed.meta.date,
+      lastmod: normalizeSitemapDate(data.updated) ?? normalizeSitemapDate(data.date),
     });
   }
 
