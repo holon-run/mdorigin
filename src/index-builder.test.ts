@@ -63,6 +63,33 @@ test('buildManagedIndexBlock renders directories and articles with sorting', asy
   assert.ok(block.indexOf('New Post') < block.indexOf('Old Post'));
 });
 
+test('legacy space-separated datetimes keep articles dated and sorted', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-index-legacy-date-'));
+  await writeFile(path.join(rootDir, 'README.md'), '# Root\n', 'utf8');
+  await writeFile(
+    path.join(rootDir, 'newer.md'),
+    ['---', 'title: Newer Post', 'date: "2026-10-20 19:00:00"', '---', '', '# Newer'].join('\n'),
+    'utf8',
+  );
+  await writeFile(
+    path.join(rootDir, 'older.md'),
+    ['---', 'title: Older Post', 'date: 2024-01-03 08:30:00', '---', '', '# Older'].join('\n'),
+    'utf8',
+  );
+  await writeFile(
+    path.join(rootDir, 'guide.md'),
+    ['---', 'title: Guide', '---', '', '# Guide'].join('\n'),
+    'utf8',
+  );
+
+  const block = await buildManagedIndexBlock(rootDir);
+
+  assert.ok(block.indexOf('Newer Post') < block.indexOf('Older Post'));
+  assert.ok(block.indexOf('Older Post') < block.indexOf('Guide'));
+  assert.match(block, /2026-10-20/);
+  assert.doesNotMatch(block, /undefined/);
+});
+
 test('buildManagedIndexBlock applies transformIndex plugins', async () => {
   const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-index-plugin-'));
   await writeFile(path.join(rootDir, 'README.md'), '# Root\n', 'utf8');

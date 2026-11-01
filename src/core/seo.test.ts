@@ -7,7 +7,20 @@ import { parseDocumentMeta, renderMarkdownWithHeadings } from './markdown.js';
 test('content dates accept real ISO dates and zoned timestamps, never deployment time', () => {
   assert.equal(normalizeContentDate('2024-02-29'), '2024-02-29');
   assert.equal(normalizeContentDate('2026-10-21T15:30:00+08:00'), '2026-10-21T07:30:00.000Z');
-  for (const invalid of ['2025-02-29', '2026-13-01', 'yesterday', '2026-10-21T12:00:00', '', 123, undefined]) {
+  assert.equal(normalizeContentDate('2026-10-20 19:00:00'), '2026-10-20T19:00:00.000Z');
+  assert.equal(normalizeContentDate('2026-10-20t19:00:00'), '2026-10-20T19:00:00.000Z');
+  assert.equal(normalizeContentDate('2026-10-20T19:00:00'), '2026-10-20T19:00:00.000Z');
+  assert.equal(normalizeContentDate('2026-10-20 19:00:00+08:00'), '2026-10-20T11:00:00.000Z');
+  for (const invalid of [
+    '2025-02-29',
+    '2026-13-01',
+    '2026-13-45 19:00:00',
+    '2026-10-20 99:00:00',
+    'yesterday',
+    '',
+    123,
+    undefined,
+  ]) {
     assert.equal(normalizeContentDate(invalid), undefined);
   }
   const { meta } = parseDocumentMeta('post.md', [
@@ -16,6 +29,13 @@ test('content dates accept real ISO dates and zoned timestamps, never deployment
   assert.equal(meta.date, '2026-01-01');
   assert.equal(meta.updated, undefined);
   assert.deepEqual(meta.author, ['Alice', 'Bob']);
+  const legacy = parseDocumentMeta('post.md', [
+    '---', 'date: "2026-10-20 19:00:00"', 'updated: 2026-10-21 08:30:00', '---', '# Legacy',
+  ].join('\n'));
+  assert.equal(legacy.meta.date, '2026-10-20T19:00:00.000Z');
+  assert.equal(legacy.meta.updated, '2026-10-21T08:30:00.000Z');
+  const invalidLegacy = parseDocumentMeta('post.md', '---\ndate: "2026-13-45 19:00:00"\n---\nBody');
+  assert.equal(invalidLegacy.meta.date, undefined);
   for (const invalid of ['2026-02-30', '2025-02-29', '2026-10-21T25:00:00Z']) {
     const bare = parseDocumentMeta('post.md', `---\ndate: 2026-01-01\nupdated: ${invalid}\n---\nBody`);
     assert.equal(bare.meta.updated, undefined, invalid);

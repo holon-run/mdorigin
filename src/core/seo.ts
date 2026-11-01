@@ -59,7 +59,12 @@ export function serializePageRobots(robots: PageRobots | undefined): string | un
   return parts.length > 0 ? parts.join(', ') : undefined;
 }
 
-/** Only ISO calendar dates or timestamps with an explicit timezone are accepted. */
+/**
+ * ISO calendar dates and timestamps are accepted. Legacy YAML timestamps that spell
+ * the date/time separator as a space or a lowercase `t` are normalized to `T`, and
+ * timestamps without an explicit timezone are interpreted as UTC so output never
+ * depends on the build machine's timezone.
+ */
 export function normalizeContentDate(value: unknown): string | undefined {
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return undefined;
@@ -67,13 +72,17 @@ export function normalizeContentDate(value: unknown): string | undefined {
     return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
   }
   if (typeof value !== 'string') return undefined;
-  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/.exec(value);
+  // Legacy YAML timestamps may spell the ISO date/time separator as a space or a lowercase t.
+  const spelling = /^(\d{4}-\d{2}-\d{2})[ t]/.test(value) ? `${value.slice(0, 10)}T${value.slice(11)}` : value;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.exec(spelling);
   if (!match) return undefined;
   const day = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`);
-  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== value.slice(0, 10)) return undefined;
-  const timestamp = Date.parse(value);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== spelling.slice(0, 10)) return undefined;
+  if (spelling.length === 10) return spelling;
+  // A timestamp without an explicit timezone is interpreted as UTC, never as local time.
+  const timestamp = Date.parse(match[4] ? spelling : `${spelling}Z`);
   if (!Number.isFinite(timestamp)) return undefined;
-  return value.length === 10 ? value : new Date(timestamp).toISOString();
+  return new Date(timestamp).toISOString();
 }
 
 export function normalizeSiteRobots(value: unknown): SiteRobots | undefined {
