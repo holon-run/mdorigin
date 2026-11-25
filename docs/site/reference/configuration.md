@@ -42,6 +42,7 @@ Useful fields:
 - `listingInitialPostCount`
 - `listingLoadMoreStep`
 - `search`
+- `assets`
 - `showDate`
 - `showSummary`
 - `stylesheet`
@@ -240,6 +241,26 @@ Example:
 }
 ```
 
+## External Asset Origin
+
+`assets.baseUrl` points rendered binary asset references at a separate origin, such as an R2 custom domain or a CDN in front of the same bucket:
+
+```json
+{
+  "siteUrl": "https://example.com",
+  "assets": {
+    "baseUrl": "https://img.example.com"
+  }
+}
+```
+
+- Requires `mdorigin build cloudflare --binary-mode external`; only assets staged in the R2 bucket are rewritten. Assets served from Workers static assets stay on the site origin.
+- Markdown images, `video` / `audio` / `source` sources, and page `socialImage` (cover / `og:image` / `twitter:image`) that resolve to a known bucket asset are rewritten to `${baseUrl}<same path>`.
+- The public path structure is preserved, so existing links keep working and the Worker route remains a fallback for crawlers and old links.
+- `baseUrl` must be an absolute `http(s)` URL. The local dev server is unaffected.
+
+See the [Cloudflare guide](../guides/cloudflare.md) for the bucket staging requirements.
+
 ## RSS
 
 `mdorigin` can emit a built-in RSS feed at `/feed.xml`.
@@ -313,6 +334,9 @@ Built-in social icons currently include:
 
 - it uses the default atlas-style baseline
 - it renders ordinary pages and managed index listings with the same outer document shell
+- rendered markdown images carry `loading="lazy"` and `decoding="async"` by
+  default, keeping off-screen images out of the critical path; author-specified
+  attributes win
 - if you want a different layout or styling, use `stylesheet` or code-based hooks instead of selecting a built-in theme/template variant
 
 When a page contains a managed index block, the default renderer turns article entries into a structured listing and supports incremental `Load more` batches. You can tune that listing behavior with:

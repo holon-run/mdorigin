@@ -72,6 +72,30 @@ This upload step can be required by large media files, large search bundle files
 
 If `--name` is omitted, `mdorigin` derives the Worker name from the site title.
 
+## Serve assets from a custom origin
+
+With external binary mode you can front the R2 bucket with a custom domain (an R2 custom domain or your own CDN) and let rendered pages reference that origin directly:
+
+```json
+{
+  "siteUrl": "https://example.com",
+  "assets": {
+    "baseUrl": "https://img.example.com"
+  }
+}
+```
+
+Rules:
+
+- only assets actually staged in the R2 bucket are rewritten, so binaries at
+  or below the Workers-assets size threshold keep the site origin; use
+  `--assets-max-bytes 0` to stage every binary in R2
+- markdown images, `video` / `audio` / `source` sources, and page
+  `socialImage` metadata resolve to `${baseUrl}<same path>`, so existing
+  paths and links keep working
+- the Worker route keeps serving the same paths as a fallback for crawlers
+  and old links, with the cache headers described below
+
 You can deploy to the default `*.workers.dev` hostname first. A custom domain is optional and can be added later from the user project's Cloudflare setup.
 
 For production deployment, set `siteUrl` in `mdorigin.config.json` so rendered HTML and `/sitemap.xml` can use the correct absolute origin.
@@ -90,6 +114,7 @@ Deployed sites are cached at several layers so repeated traffic does not re-rend
 
 - **Static assets** — generated Wrangler config serves assets directly from the Cloudflare asset CDN before the Worker runs.
 - **Browser and edge caches** — rendered responses carry a deploy-versioned `ETag`, `Cache-Control: public, max-age=120, stale-while-revalidate=604800` for browsers, and `CDN-Cache-Control: max-age=86400` for the Cloudflare edge on non-negotiated routes. Conditional requests with a matching `If-None-Match` receive `304` without rendering.
+- **R2-backed binary assets** — external binary mode serves bucket assets with `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` for browsers and `CDN-Cache-Control: max-age=86400` for the edge, plus the R2 `ETag`, so repeat visits no longer revalidate every image. Assets served from Workers static assets use Cloudflare's asset caching instead.
 - **Worker-internal caches** — within one isolate, rendered responses are memoized (default 100 entries), and each colo additionally uses the Cloudflare Cache API. Cache keys include the deploy version and the `html`/`md` representation, so Accept-negotiated routes never cross-contaminate and every cache entry is invalidated automatically on the next deploy.
 - **Search** — `/api/search` results are memoized per isolate because the search index is static within a deploy.
 

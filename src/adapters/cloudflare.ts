@@ -6,6 +6,7 @@ import type {
 } from '../core/content-store.js';
 import { MemoryContentStore } from '../core/content-store.js';
 import type { MdoPlugin } from '../core/extensions.js';
+import { createExternalAssetUrlResolver, type AssetUrlResolver } from '../core/asset-urls.js';
 import { handleSiteRequest } from '../core/request-handler.js';
 import type { SiteResponse } from '../core/request-handler.js';
 import { resolveRequest } from '../core/router.js';
@@ -125,6 +126,23 @@ const BROWSER_CACHE_CONTROL = 'public, max-age=120, stale-while-revalidate=60480
 const CDN_CACHE_CONTROL = 'max-age=86400';
 const L2_CACHE_CONTROL = 'public, max-age=86400';
 const L2_CACHE_KEY_ORIGIN = 'https://cache.mdorigin.internal';
+/**
+ * Browser cache policy for R2-backed binary assets in external binary mode.
+ * Public paths stay stable while the underlying object can change on a
+ * redeploy, so responses must stay revalidatable (no immutable): browsers
+ * reuse images for a day, then revalidate in the background while stale
+ * content keeps rendering. Without this header browsers fall back to
+ * Cloudflare's default max-age=0 must-revalidate and pay one conditional
+ * round trip per image on every visit.
+ */
+const EXTERNAL_BINARY_BROWSER_CACHE_CONTROL =
+  'public, max-age=86400, stale-while-revalidate=604800';
+/**
+ * Edge cache policy for R2-backed binary assets. Mirrors the HTML CDN policy
+ * so edge hits are deterministic while a redeploy can serve stale bytes for
+ * at most one day.
+ */
+const EXTERNAL_BINARY_CDN_CACHE_CONTROL = 'max-age=86400';
 const CACHE_DEBUG_HEADER = 'x-mdorigin-cache';
 const RESPONSE_CACHE_LIMIT_DEFAULT = 100;
 const SEARCH_CACHE_LIMIT_DEFAULT = 100;
@@ -188,6 +206,12 @@ export function createCloudflareWorker(
   let defaultExternalSearchApi:
     | ReturnType<typeof createSearchApiFromExternalBundle>
     | undefined;
+  /**
+   * External asset origin rewriting. Only R2-backed binary entries are
+   * rewritten: `assets`-staged binaries live in the Workers static assets,
+   * not in the R2 bucket, so an R2 custom domain would not serve them.
+   */
+  const resolveAssetUrl = createWorkerAssetUrlResolver(manifest);
 
   return {
     async fetch(
@@ -293,6 +317,7 @@ export function createCloudflareWorker(
         requestUrl: request.url,
         searchApi: inlineSearchApi ?? externalSearchApi,
         plugins: options.plugins,
+        resolveAssetUrl,
       });
 
       const headers = new Headers(siteResponse.headers);
@@ -766,7 +791,11 @@ async function tryServeExternalBinary(
 
   const headers = new Headers({
     'content-type': manifestEntry.mediaType,
+    'cache-control': EXTERNAL_BINARY_BROWSER_CACHE_CONTROL,
+    'cdn-cache-control': EXTERNAL_BINARY_CDN_CACHE_CONTROL,
   });
+  // Keep the R2 etag so browsers and the edge can revalidate cheaply once
+  // the freshness window expires.
   if (object.httpEtag) {
     headers.set('etag', object.httpEtag);
   }
@@ -809,6 +838,33 @@ function isExternalBinaryEntry(
   entry: CloudflareManifestEntry,
 ): entry is ExternalBinaryCloudflareManifestEntry {
   return entry.kind === 'binary' && 'storageKind' in entry;
+}
+
+/**
+ * Builds the asset-origin rewriter for a manifest, or undefined when the site
+ * does not configure `assets.baseUrl` or has no R2-backed binary assets.
+ */
+function createWorkerAssetUrlResolver(
+  manifest: CloudflareManifest,
+): AssetUrlResolver | undefined {
+  const baseUrl = manifest.siteConfig?.assets?.baseUrl;
+  if (baseUrl === undefined) {
+    return undefined;
+  }
+
+  const externalAssetPaths = new Set(
+    manifest.entries
+      .filter(
+        (entry): entry is ExternalBinaryCloudflareManifestEntry =>
+          isExternalBinaryEntry(entry) && entry.storageKind === 'r2',
+      )
+      .map((entry) => entry.path),
+  );
+  if (externalAssetPaths.size === 0) {
+    return undefined;
+  }
+
+  return createExternalAssetUrlResolver(baseUrl, externalAssetPaths);
 }
 
 class CloudflareManifestContentStore implements ContentStore {

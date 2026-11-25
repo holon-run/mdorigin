@@ -5,6 +5,7 @@ import type {
   ContentEntry,
   ContentStore,
 } from './content-store.js';
+import { applyAssetUrlResolver, type AssetUrlResolver } from './asset-urls.js';
 import { isIgnoredContentName } from './content-store.js';
 import {
   inferDirectoryContentType,
@@ -70,6 +71,13 @@ export interface HandleSiteRequestOptions {
   requestUrl?: string;
   searchApi?: SearchApi;
   plugins?: MdoPlugin[];
+  /**
+   * Optional external asset origin rewriter for rendered binary asset
+   * references (markdown media sources, cover / social images). Supplied by
+   * deployments that know which paths live on the external origin, e.g. the
+   * Cloudflare worker from its manifest.
+   */
+  resolveAssetUrl?: AssetUrlResolver;
 }
 
 export interface SiteResponse {
@@ -310,7 +318,10 @@ async function handleSiteRequestWithoutLocaleDetection(
   }
   const documentBody =
     listingEntries.length > 0 ? stripManagedIndexBlock(renderedBody) : renderedBody;
-  const renderedParsed = await parseMarkdownDocument(resolved.sourcePath, documentBody);
+  const renderedParsed = await parseMarkdownDocument(resolved.sourcePath, documentBody, {
+    requestPath: resolved.requestPath,
+    resolveAssetUrl: options.resolveAssetUrl,
+  });
 
   return renderStructuredPage({
     requestPath: resolved.requestPath,
@@ -321,6 +332,7 @@ async function handleSiteRequestWithoutLocaleDetection(
     topNav: navigation.items,
     listingEntries,
     searchEnabled,
+    resolveAssetUrl: options.resolveAssetUrl,
     plugins,
     store,
     requestLocale,
@@ -474,6 +486,8 @@ function buildPageRenderModel(options: {
   languages: PageLanguage[];
   listingEntries: ReturnType<typeof extractManagedIndexEntries>;
   searchEnabled: boolean;
+  /** External asset origin rewriter applied to the resolved social image. */
+  resolveAssetUrl?: AssetUrlResolver;
 }): PageRenderModel {
   return {
     kind: options.listingEntries.length > 0 ? 'listing' : 'page',
@@ -485,9 +499,12 @@ function buildPageRenderModel(options: {
     siteDescription: options.siteDescription ?? options.siteConfig.siteDescription,
     siteUrl: options.siteConfig.siteUrl,
     favicon: options.siteConfig.favicon,
-    socialImage:
+    socialImage: applyAssetUrlResolver(
       resolvePageSocialImage(options.parsed.meta.socialImage, options.resolvedRequestPath) ??
-      options.siteConfig.socialImage,
+        options.siteConfig.socialImage,
+      options.resolvedRequestPath,
+      options.resolveAssetUrl,
+    ),
     logo: options.siteConfig.logo,
     title: getDocumentTitle(options.parsed),
     meta: options.parsed.meta,
@@ -523,6 +540,8 @@ async function renderStructuredPage(options: {
   topNav: SiteNavItem[];
   listingEntries: ReturnType<typeof extractManagedIndexEntries>;
   searchEnabled: boolean;
+  /** External asset origin rewriter applied to page media and social images. */
+  resolveAssetUrl?: AssetUrlResolver;
   plugins: MdoPlugin[];
   varyOnAccept?: boolean;
   store: ContentStore;
@@ -554,6 +573,7 @@ async function renderStructuredPage(options: {
     siteDescription: getEffectiveSiteDescription(options.siteConfig, localeConfig),
     footerNav: getEffectiveFooterNav(options.siteConfig, localeConfig),
     topNav: options.topNav,
+    resolveAssetUrl: options.resolveAssetUrl,
     listingEntries: options.listingEntries,
     searchEnabled: options.searchEnabled,
   });
@@ -1699,7 +1719,10 @@ async function tryRenderAlternateDirectoryIndex(
     }
     const documentBody =
       listingEntries.length > 0 ? stripManagedIndexBlock(renderedBody) : renderedBody;
-   const renderedParsed = await parseMarkdownDocument(candidatePath, documentBody);
+    const renderedParsed = await parseMarkdownDocument(candidatePath, documentBody, {
+      requestPath,
+      resolveAssetUrl: options.resolveAssetUrl,
+    });
 
     return renderStructuredPage({
       requestPath,
@@ -1710,6 +1733,7 @@ async function tryRenderAlternateDirectoryIndex(
       topNav: navigation.items,
       listingEntries,
       searchEnabled: options.searchApi !== undefined,
+      resolveAssetUrl: options.resolveAssetUrl,
       plugins,
       store,
       requestLocale,

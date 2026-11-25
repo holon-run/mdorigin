@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MemoryContentStore } from './content-store.js';
+import { createExternalAssetUrlResolver } from './asset-urls.js';
 import { handleSiteRequest } from './request-handler.js';
 import { resolveRequest } from './router.js';
 
@@ -2132,4 +2133,75 @@ test('handleSiteRequest redirects root to a prefixed default locale', async () =
   });
   assert.equal(enResponse.status, 200);
   assert.match(String(enResponse.body), /English home\./);
+});
+
+test('handleSiteRequest rewrites binary asset references through the asset resolver', async () => {
+  const store = new MemoryContentStore([
+    {
+      path: 'mcp-events/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: [
+        '---',
+        'title: Events',
+        'socialImage: ./cover.webp',
+        '---',
+        '',
+        '# Events',
+        '',
+        '![Cover](./cover.webp)',
+        '',
+        '![Inline](./inline.webp)',
+      ].join('\n'),
+    },
+    {
+      path: 'mcp-events/cover.webp',
+      kind: 'binary',
+      mediaType: 'image/webp',
+      bytes: new Uint8Array([1]),
+    },
+  ]);
+
+  const resolveAssetUrl = createExternalAssetUrlResolver(
+    'https://img.example.com',
+    new Set(['mcp-events/cover.webp']),
+  );
+
+  const response = await handleSiteRequest(store, '/mcp-events/', {
+    draftMode: 'include',
+    siteConfig: TEST_SITE_CONFIG,
+    resolveAssetUrl,
+  });
+
+  assert.equal(response.status, 200);
+  const body = String(response.body);
+  assert.ok(body.includes('src="https://img.example.com/mcp-events/cover.webp"'));
+  assert.ok(body.includes('src="./inline.webp"'));
+  assert.ok(
+    body.includes(
+      'property="og:image" content="https://img.example.com/mcp-events/cover.webp"',
+    ),
+  );
+  assert.ok(body.includes('name="twitter:image" content="https://img.example.com/mcp-events/cover.webp"'));
+});
+
+test('handleSiteRequest leaves asset references alone without a resolver', async () => {
+  const store = new MemoryContentStore([
+    {
+      path: 'mcp-events/index.md',
+      kind: 'text',
+      mediaType: 'text/markdown; charset=utf-8',
+      text: ['---', 'title: Events', 'socialImage: ./cover.webp', '---', '', '![Cover](./cover.webp)'].join('\n'),
+    },
+  ]);
+
+  const response = await handleSiteRequest(store, '/mcp-events/', {
+    draftMode: 'include',
+    siteConfig: TEST_SITE_CONFIG,
+  });
+
+  assert.equal(response.status, 200);
+  const body = String(response.body);
+  assert.ok(body.includes('src="./cover.webp"'));
+  assert.ok(!body.includes('img.example.com'));
 });

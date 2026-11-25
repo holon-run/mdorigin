@@ -8,6 +8,7 @@ import { getDirectoryIndexCandidates } from './directory-index.js';
 import { parseEntryDocumentMeta } from './markdown.js';
 import type { MdoPlugin } from './extensions.js';
 import { normalizeSiteRobots, type SiteRobots } from './seo.js';
+import { normalizeAssetBaseUrl } from './asset-urls.js';
 import {
   DEFAULT_SITE_LOCALE,
   validateSiteMessages,
@@ -88,6 +89,21 @@ export interface SiteSearchConfig {
   policy?: SiteSearchPolicyConfig;
 }
 
+export interface SiteAssetsConfig {
+  /**
+   * Absolute http(s) base URL of an external asset origin, e.g. an R2 custom
+   * domain or a CDN in front of the same bucket. Requires external binary
+   * mode: rendered references to R2-backed binary assets are rewritten to
+   * `${baseUrl}<same path>`, while the Worker route keeps serving the same
+   * paths as a fallback for crawlers and old links.
+   */
+  baseUrl?: string;
+}
+
+export interface ResolvedSiteAssetsConfig {
+  baseUrl: string;
+}
+
 export interface SiteConfig {
   siteTitle?: string;
   siteDescription?: string;
@@ -128,6 +144,7 @@ export interface SiteConfig {
   listingInitialPostCount?: number;
   listingLoadMoreStep?: number;
   search?: SiteSearchConfig;
+  assets?: SiteAssetsConfig;
 }
 
 export interface UserSiteConfig extends SiteConfig {
@@ -160,6 +177,7 @@ export interface ResolvedSiteConfig {
   listingInitialPostCount: number;
   listingLoadMoreStep: number;
   search?: SiteSearchConfig;
+  assets?: ResolvedSiteAssetsConfig;
   stylesheetContent?: string;
   siteTitleConfigured: boolean;
   siteDescriptionConfigured: boolean;
@@ -308,6 +326,7 @@ export async function loadUserSiteConfig(
       10,
     ),
     search: normalizeSearchConfig(parsedConfig.search, configFilePath),
+    assets: resolveAssetsConfig(parsedConfig.assets, configFilePath),
     stylesheetContent,
     siteTitleConfigured:
       typeof parsedConfig.siteTitle === 'string' && parsedConfig.siteTitle !== '',
@@ -389,6 +408,39 @@ function resolveLocaleDetectionConfig(
     enabled: true,
     redirect: 'root',
   };
+}
+
+function resolveAssetsConfig(
+  value: SiteAssetsConfig | undefined,
+  configFilePath: string,
+): ResolvedSiteAssetsConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`Invalid "assets" in ${configFilePath}: expected an object`);
+  }
+
+  if (value.baseUrl === undefined) {
+    return undefined;
+  }
+
+  if (typeof value.baseUrl !== 'string' || value.baseUrl === '') {
+    throw new Error(
+      `Invalid "assets.baseUrl" in ${configFilePath}: expected a non-empty string`,
+    );
+  }
+
+  try {
+    return { baseUrl: normalizeAssetBaseUrl(value.baseUrl) };
+  } catch (error) {
+    throw new Error(
+      `Invalid "assets.baseUrl" in ${configFilePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 }
 
 function resolveMessageOverrides(

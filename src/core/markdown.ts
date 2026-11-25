@@ -7,6 +7,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeStringify from 'rehype-stringify';
 
 import type { ContentEntry } from './content-store.js';
+import type { AssetUrlResolver } from './asset-urls.js';
 import { normalizeContentDate, normalizePageRobots, type PageRobots } from './seo.js';
 
 export interface ParsedDocumentMeta {
@@ -90,12 +91,29 @@ export function getDocumentSummary(
   );
 }
 
+export interface ParseMarkdownDocumentOptions {
+  /**
+   * URL path of the page being rendered. Relative media sources resolve
+   * against this path the same way a browser would resolve them.
+   */
+  requestPath?: string;
+  /**
+   * Optional rewriter mapping binary asset references to an external asset
+   * origin (see `assets.baseUrl`). Only matching references change.
+   */
+  resolveAssetUrl?: AssetUrlResolver;
+}
+
 export async function parseMarkdownDocument(
   sourcePath: string,
   markdown: string,
+  options: ParseMarkdownDocumentOptions = {},
 ): Promise<ParsedDocument> {
   const { body, meta } = parseDocumentMeta(sourcePath, markdown);
-  const html = rewriteMarkdownLinksInHtml(await renderMarkdown(body));
+  const html = enhanceHtmlMediaSources(
+    rewriteMarkdownLinksInHtml(await renderMarkdown(body)),
+    options,
+  );
 
   return {
     sourcePath,
@@ -215,6 +233,60 @@ export function rewriteMarkdownLinksInHtml(html: string): string {
     (_match, prefix: string, href: string, suffix: string) =>
       `${prefix}${rewriteMarkdownHref(href)}${suffix}`,
   );
+}
+
+const MEDIA_SOURCE_TAG_PATTERN = /(<(?:img|source|video|audio)\b[^>]*?\ssrc=")([^"]+)(")/g;
+const IMG_TAG_PATTERN = /<img\b[^>]*>/g;
+
+/**
+ * Applies asset-origin and lazy-loading enhancements to media elements in
+ * rendered HTML:
+ *
+ * - When an asset resolver is configured, `src` attributes on media elements
+ *   that resolve to a known external binary asset are rewritten to the
+ *   external origin.
+ * - Rendered `<img>` tags get `loading="lazy"` and `decoding="async"` so
+ *   off-screen images stay out of the critical path. Attributes the author
+ *   already set are preserved.
+ */
+function enhanceHtmlMediaSources(
+  html: string,
+  options: ParseMarkdownDocumentOptions,
+): string {
+  const { requestPath, resolveAssetUrl } = options;
+
+  let result = html;
+  if (resolveAssetUrl !== undefined && requestPath !== undefined) {
+    result = result.replaceAll(
+      MEDIA_SOURCE_TAG_PATTERN,
+      (match: string, prefix: string, src: string, suffix: string) => {
+        const rewritten = resolveAssetUrl(src, requestPath);
+        return rewritten === undefined ? match : `${prefix}${rewritten}${suffix}`;
+      },
+    );
+  }
+
+  return result.replaceAll(IMG_TAG_PATTERN, addLazyLoadingAttributes);
+}
+
+function addLazyLoadingAttributes(tag: string): string {
+  let enhanced = tag;
+  if (!/\bloading\s*=/.test(enhanced)) {
+    enhanced = insertAttributeBeforeTagEnd(enhanced, ' loading="lazy"');
+  }
+  if (!/\bdecoding\s*=/.test(enhanced)) {
+    enhanced = insertAttributeBeforeTagEnd(enhanced, ' decoding="async"');
+  }
+  return enhanced;
+}
+
+function insertAttributeBeforeTagEnd(tag: string, attribute: string): string {
+  const endMatch = tag.match(/\s*\/?>$/);
+  if (endMatch === null) {
+    return tag;
+  }
+
+  return tag.slice(0, tag.length - endMatch[0].length) + attribute + endMatch[0];
 }
 
 export function stripManagedIndexBlock(markdown: string): string {

@@ -7,6 +7,7 @@ import {
   renderMarkdown,
   rewriteMarkdownLinksInHtml,
 } from './markdown.js';
+import { createExternalAssetUrlResolver } from './asset-urls.js';
 
 test('parseEntryDocumentMeta memoizes metadata by entry identity', () => {
   const entry = {
@@ -86,4 +87,68 @@ test('rewriteMarkdownLinksInHtml does not rewrite raw html media src attributes'
 
   assert.ok(rewritten.includes('<video controls src="./clip.mp4"></video>'));
   assert.ok(rewritten.includes('<a href="./guide">Guide</a>'));
+});
+
+test('parseMarkdownDocument adds lazy loading attributes to rendered images', async () => {
+  const parsed = await parseMarkdownDocument(
+    'posts/example.md',
+    ['# Example', '', '![Diagram](./diagram.png)'].join('\n'),
+  );
+
+  assert.match(
+    parsed.html,
+    /<img src="\.\/diagram\.png" alt="Diagram" loading="lazy" decoding="async">/,
+  );
+});
+
+test('parseMarkdownDocument preserves author-specified image loading attribute', async () => {
+  const parsed = await parseMarkdownDocument(
+    'posts/example.md',
+    '<img src="/hero.png" loading="eager" alt="Hero">',
+  );
+
+  assert.ok(parsed.html.includes('loading="eager"'));
+  assert.ok(!parsed.html.includes('loading="lazy"'));
+  assert.ok(parsed.html.includes('decoding="async"'));
+});
+
+test('parseMarkdownDocument rewrites known asset sources to the external origin', async () => {
+  const resolveAssetUrl = createExternalAssetUrlResolver(
+    'https://img.example.com',
+    new Set(['mcp-events/cover.webp']),
+  );
+  const parsed = await parseMarkdownDocument(
+    'mcp-events/index.md',
+    [
+      '# Events',
+      '',
+      '![Cover](./cover.webp)',
+      '',
+      '![Missing](./missing.webp)',
+      '',
+      '<video controls src="./clip.mp4"></video>',
+    ].join('\n'),
+    {
+      requestPath: '/mcp-events/',
+      resolveAssetUrl,
+    },
+  );
+
+  assert.ok(
+    parsed.html.includes(
+      'src="https://img.example.com/mcp-events/cover.webp"',
+    ),
+  );
+  assert.ok(parsed.html.includes('src="./missing.webp"'));
+  assert.ok(parsed.html.includes('src="./clip.mp4"'));
+});
+
+test('parseMarkdownDocument leaves media sources alone without an asset resolver', async () => {
+  const parsed = await parseMarkdownDocument(
+    'mcp-events/index.md',
+    '![Cover](./cover.webp)',
+    { requestPath: '/mcp-events/' },
+  );
+
+  assert.ok(parsed.html.includes('src="./cover.webp"'));
 });

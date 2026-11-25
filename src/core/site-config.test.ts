@@ -197,6 +197,40 @@ test('loadSiteConfig allows rss to be disabled explicitly', async () => {
   });
 });
 
+test('loadSiteConfig normalizes assets.baseUrl and rejects invalid values', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-assets-'));
+  await writeFile(
+    path.join(rootDir, 'mdorigin.config.json'),
+    JSON.stringify({ assets: { baseUrl: 'https://img.example.com/' } }),
+    'utf8',
+  );
+
+  const config = await loadSiteConfig({ rootDir });
+
+  assert.deepEqual(config.assets, { baseUrl: 'https://img.example.com' });
+
+  const emptyDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-assets-empty-'));
+  await writeFile(
+    path.join(emptyDir, 'mdorigin.config.json'),
+    JSON.stringify({ assets: {} }),
+    'utf8',
+  );
+
+  assert.equal((await loadSiteConfig({ rootDir: emptyDir })).assets, undefined);
+
+  const invalidDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-assets-invalid-'));
+  await writeFile(
+    path.join(invalidDir, 'mdorigin.config.json'),
+    JSON.stringify({ assets: { baseUrl: 'img.example.com' } }),
+    'utf8',
+  );
+
+  await assert.rejects(
+    () => loadSiteConfig({ rootDir: invalidDir }),
+    /Invalid "assets\.baseUrl".*not an absolute URL/,
+  );
+});
+
 test('loadUserSiteConfig prefers mdorigin.config.ts and exposes plugins', async () => {
   const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-ts-'));
   const warnings: string[] = [];
