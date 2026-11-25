@@ -624,4 +624,80 @@ test('syncCloudflareR2 uploads search objects staged to r2', async () => {
   assert.equal(result.skippedCount, 0);
   assert.equal(calls.length, 1);
   assert.match(calls[0] ?? '', /wrangler r2 object put search-bucket\/search\//);
+  assert.doesNotMatch(calls[0] ?? '', /--cache-control/);
+
+  // Search objects carry no object-level cache policy, so a re-run with the
+  // recorded state skips without another upload.
+  const secondResult = await syncCloudflareR2({
+    dir: outDir,
+    bucketName: 'search-bucket',
+    runCommand,
+  });
+  assert.equal(secondResult.uploadedCount, 0);
+  assert.equal(secondResult.skippedCount, 1);
+  assert.equal(calls.length, 1);
+});
+
+test('syncCloudflareR2 stamps immutable cache-control on binary objects and re-syncs stale state', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-cf-sync-cc-root-'));
+  const outDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-cf-sync-cc-out-'));
+  await writeFile(path.join(rootDir, 'index.md'), '# Home\n', 'utf8');
+  await writeFile(path.join(rootDir, 'large.mp4'), Uint8Array.from([1, 2, 3, 4, 5, 6]));
+
+  await writeCloudflareBundle({
+    rootDir,
+    outDir,
+    siteConfig: TEST_SITE_CONFIG,
+    binaryMode: 'external',
+    assetsMaxBytes: 4,
+  });
+
+  const calls: string[] = [];
+  const runCommand = (command: string, args: string[]) => {
+    calls.push([command, ...args].join(' '));
+    return { status: 0, stderr: '' };
+  };
+
+  const result = await syncCloudflareR2({
+    dir: outDir,
+    bucketName: 'media-bucket',
+    runCommand,
+  });
+
+  assert.equal(result.uploadedCount, 1);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0] ?? '', /wrangler r2 object put media-bucket\/binary\//);
+  assert.match(calls[0] ?? '', /--cache-control public, max-age=31536000, immutable/);
+
+  // The recorded policy matches, so a re-run skips the object.
+  calls.length = 0;
+  const second = await syncCloudflareR2({
+    dir: outDir,
+    bucketName: 'media-bucket',
+    runCommand,
+  });
+  assert.equal(second.uploadedCount, 0);
+  assert.equal(second.skippedCount, 1);
+  assert.equal(calls.length, 0);
+
+  // State written by older versions records no policy, so the object
+  // re-syncs once to refresh its metadata.
+  const stateFile = path.join(outDir, 'r2-sync-state.json');
+  const state = JSON.parse(await readFile(stateFile, 'utf8')) as {
+    uploaded: Record<string, { cacheControl?: string }>;
+  };
+  for (const entry of Object.values(state.uploaded)) {
+    delete entry.cacheControl;
+  }
+  await writeFile(stateFile, JSON.stringify(state, null, 2), 'utf8');
+
+  calls.length = 0;
+  const third = await syncCloudflareR2({
+    dir: outDir,
+    bucketName: 'media-bucket',
+    runCommand,
+  });
+  assert.equal(third.uploadedCount, 1);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0] ?? '', /--cache-control/);
 });

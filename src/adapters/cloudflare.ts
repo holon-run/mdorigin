@@ -6,7 +6,11 @@ import type {
 } from '../core/content-store.js';
 import { MemoryContentStore } from '../core/content-store.js';
 import type { MdoPlugin } from '../core/extensions.js';
-import { createExternalAssetUrlResolver, type AssetUrlResolver } from '../core/asset-urls.js';
+import {
+  createExternalAssetUrlResolver,
+  createStorageKeyAssetUrlResolver,
+  type AssetUrlResolver,
+} from '../core/asset-urls.js';
 import { handleSiteRequest } from '../core/request-handler.js';
 import type { SiteResponse } from '../core/request-handler.js';
 import { resolveRequest } from '../core/router.js';
@@ -209,9 +213,8 @@ export function createCloudflareWorker(
     | ReturnType<typeof createSearchApiFromExternalBundle>
     | undefined;
   /**
-   * External asset origin rewriting. Only R2-backed binary entries are
-   * rewritten: `assets`-staged binaries live in the Workers static assets,
-   * not in the R2 bucket, so an R2 custom domain would not serve them.
+   * External asset origin rewriting; `assets.addressing` selects the origin
+   * form (see createWorkerAssetUrlResolver).
    */
   const resolveAssetUrl = createWorkerAssetUrlResolver(manifest);
 
@@ -871,21 +874,50 @@ function isExternalBinaryEntry(
 
 /**
  * Builds the asset-origin rewriter for a manifest, or undefined when the site
- * does not configure `assets.baseUrl` or has no R2-backed binary assets.
+ * does not configure `assets.baseUrl` or has no external binary assets.
+ *
+ * `assets.addressing` selects the origin form:
+ * - 'path' (default): the origin mirrors the site's public path structure,
+ *   such as a custom domain bound to the same Worker or a CDN in front of
+ *   the site. Every external binary entry is rewritten to
+ *   `${baseUrl}<same path>`, including `assets`-staged binaries.
+ * - 'key': the origin serves the R2 bucket by object key, such as an R2
+ *   custom domain. R2-backed entries are rewritten to their content-hash
+ *   storage key; `assets`-staged binaries live in the Workers static
+ *   assets, not in the bucket, so they stay on the Worker origin.
+ *
+ * Manifests built before `addressing` existed behave as 'path'.
  */
 function createWorkerAssetUrlResolver(
   manifest: CloudflareManifest,
 ): AssetUrlResolver | undefined {
-  const baseUrl = manifest.siteConfig?.assets?.baseUrl;
+  const assets = manifest.siteConfig?.assets;
+  const baseUrl = assets?.baseUrl;
   if (baseUrl === undefined) {
     return undefined;
+  }
+
+  if ((assets?.addressing ?? 'path') === 'key') {
+    const assetKeys = new Map(
+      manifest.entries
+        .filter(
+          (entry): entry is ExternalBinaryCloudflareManifestEntry =>
+            isExternalBinaryEntry(entry) && entry.storageKind === 'r2',
+        )
+        .map((entry) => [entry.path, entry.storageKey] as const),
+    );
+    if (assetKeys.size === 0) {
+      return undefined;
+    }
+
+    return createStorageKeyAssetUrlResolver(baseUrl, assetKeys);
   }
 
   const externalAssetPaths = new Set(
     manifest.entries
       .filter(
         (entry): entry is ExternalBinaryCloudflareManifestEntry =>
-          isExternalBinaryEntry(entry) && entry.storageKind === 'r2',
+          isExternalBinaryEntry(entry),
       )
       .map((entry) => entry.path),
   );

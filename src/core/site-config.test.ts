@@ -207,7 +207,7 @@ test('loadSiteConfig normalizes assets.baseUrl and rejects invalid values', asyn
 
   const config = await loadSiteConfig({ rootDir });
 
-  assert.deepEqual(config.assets, { baseUrl: 'https://img.example.com' });
+  assert.deepEqual(config.assets, { baseUrl: 'https://img.example.com', addressing: 'path' });
 
   const emptyDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-assets-empty-'));
   await writeFile(
@@ -228,6 +228,46 @@ test('loadSiteConfig normalizes assets.baseUrl and rejects invalid values', asyn
   await assert.rejects(
     () => loadSiteConfig({ rootDir: invalidDir }),
     /Invalid "assets\.baseUrl".*not an absolute URL/,
+  );
+
+  const keyDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-config-assets-key-'));
+  await writeFile(
+    path.join(keyDir, 'mdorigin.config.json'),
+    JSON.stringify({ assets: { baseUrl: 'https://assets.example.com', addressing: 'key' } }),
+    'utf8',
+  );
+
+  assert.deepEqual((await loadSiteConfig({ rootDir: keyDir })).assets, {
+    baseUrl: 'https://assets.example.com',
+    addressing: 'key',
+  });
+
+  const invalidAddressingDir = await mkdtemp(
+    path.join(tmpdir(), 'mdorigin-config-assets-addressing-'),
+  );
+  await writeFile(
+    path.join(invalidAddressingDir, 'mdorigin.config.json'),
+    JSON.stringify({ assets: { baseUrl: 'https://img.example.com', addressing: 'hash' } }),
+    'utf8',
+  );
+
+  await assert.rejects(
+    () => loadSiteConfig({ rootDir: invalidAddressingDir }),
+    /Invalid "assets\.addressing".*expected 'path' or 'key'/,
+  );
+
+  const missingBaseUrlDir = await mkdtemp(
+    path.join(tmpdir(), 'mdorigin-config-assets-addressing-orphan-'),
+  );
+  await writeFile(
+    path.join(missingBaseUrlDir, 'mdorigin.config.json'),
+    JSON.stringify({ assets: { addressing: 'key' } }),
+    'utf8',
+  );
+
+  await assert.rejects(
+    () => loadSiteConfig({ rootDir: missingBaseUrlDir }),
+    /Invalid "assets\.addressing".*requires "assets\.baseUrl"/,
   );
 });
 

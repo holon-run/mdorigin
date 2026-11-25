@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   applyAssetUrlResolver,
   createExternalAssetUrlResolver,
+  createStorageKeyAssetUrlResolver,
   normalizeAssetBaseUrl,
 } from './asset-urls.js';
 
@@ -74,6 +75,48 @@ test('createExternalAssetUrlResolver preserves query and hash', () => {
   assert.equal(
     resolve('./cover.webp?v=2#fragment', '/mcp-events/'),
     'https://img.example.com/mcp-events/cover.webp?v=2#fragment',
+  );
+});
+
+const ASSET_STORAGE_KEYS = new Map([
+  ['mcp-events/cover.webp', 'binary/5d41402abc4b2a76b9719d911017c592.webp'],
+]);
+
+test('createStorageKeyAssetUrlResolver rewrites known asset paths to storage keys', () => {
+  const resolve = createStorageKeyAssetUrlResolver(
+    'https://assets.example.com',
+    ASSET_STORAGE_KEYS,
+  );
+
+  assert.equal(
+    resolve('./cover.webp', '/mcp-events/post'),
+    'https://assets.example.com/binary/5d41402abc4b2a76b9719d911017c592.webp',
+  );
+  assert.equal(
+    resolve('/mcp-events/cover.webp', '/other/page'),
+    'https://assets.example.com/binary/5d41402abc4b2a76b9719d911017c592.webp',
+  );
+});
+
+test('createStorageKeyAssetUrlResolver leaves unknown and absolute references untouched', () => {
+  const resolve = createStorageKeyAssetUrlResolver(
+    'https://assets.example.com',
+    ASSET_STORAGE_KEYS,
+  );
+
+  assert.equal(resolve('./inline.webp', '/mcp-events/'), undefined);
+  assert.equal(resolve('https://cdn.example.com/x.webp', '/mcp-events/'), undefined);
+});
+
+test('createStorageKeyAssetUrlResolver preserves query and hash', () => {
+  const resolve = createStorageKeyAssetUrlResolver(
+    'https://assets.example.com',
+    ASSET_STORAGE_KEYS,
+  );
+
+  assert.equal(
+    resolve('./cover.webp?v=2#fragment', '/mcp-events/'),
+    'https://assets.example.com/binary/5d41402abc4b2a76b9719d911017c592.webp?v=2#fragment',
   );
 });
 

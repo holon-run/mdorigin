@@ -74,32 +74,64 @@ If `--name` is omitted, `mdorigin` derives the Worker name from the site title.
 
 ## Serve assets from a custom origin
 
-With external binary mode you can point rendered asset references at a second origin that mirrors the site's public paths, for example a custom domain bound to the same deployed Worker or a CDN whose origin is the site:
+With external binary mode you can point rendered asset references at a second origin. `assets.addressing` selects the origin form.
+
+### Path-mirroring origin (default)
+
+Use a custom domain bound to the same deployed Worker, or a CDN whose origin is the site. The origin must serve the site's public path structure:
 
 ```json
 {
   "siteUrl": "https://example.com",
   "assets": {
-    "baseUrl": "https://img.example.com"
+    "baseUrl": "https://img.example.com",
+    "addressing": "path"
   }
 }
 ```
 
 Rules:
 
-- the origin must serve the site's public path structure. A raw R2 custom
-  domain does **not** work: binaries are staged in the bucket at
-  content-hash keys (`binary/<sha256><ext>`), which an R2 domain serves by
-  key, not by public path; key-addressed rewrite support is tracked in #38
-- only assets actually staged in the R2 bucket are rewritten, so binaries at
-  or below the Workers-assets size threshold keep the site origin (the asset
-  CDN serves them with the browser cache policy below, so offloading them is
-  usually unnecessary); use `--assets-max-bytes 0` to stage every binary in R2
+- every external binary asset is rewritten to `${baseUrl}<same path>`,
+  including assets staged in the Workers static assets bundle
 - markdown images, `video` / `audio` / `source` sources, and page
   `socialImage` metadata resolve to `${baseUrl}<same path>`, so existing
   paths and links keep working
 - the Worker route keeps serving the same paths as a fallback for crawlers
   and old links, with the cache headers described below
+
+### R2 custom domain (key addressing)
+
+Use an R2 custom domain bound to the same bucket that `mdorigin sync
+cloudflare-r2` uploads to. The domain serves objects by key, so rewritten
+URLs use the content-hash storage key:
+
+```json
+{
+  "siteUrl": "https://example.com",
+  "assets": {
+    "baseUrl": "https://assets.example.com",
+    "addressing": "key"
+  }
+}
+```
+
+Rules:
+
+- binaries staged in the bucket (above the `--assets-max-bytes` threshold,
+  default 25 MB) are rewritten to `${baseUrl}/binary/<sha256><ext>`; the
+  keys are content-addressed, so uploads carry
+  `Cache-Control: public, max-age=31536000, immutable` object metadata and
+  repeat views are cache hits with zero Worker invocations
+- binaries at or below the Workers-assets size threshold stay on the site
+  origin (the asset layer serves them with the browser cache policy below,
+  so offloading them is usually unnecessary); use `--assets-max-bytes 0` if
+  you want every binary served from the R2 domain
+- the Worker route keeps serving the same public paths as a fallback for
+  crawlers and old links
+- objects uploaded before immutable metadata was stamped are re-synced
+  automatically once on the next `mdorigin sync cloudflare-r2` run (the
+  sync state records the policy), or immediately with `--force`
 
 You can deploy to the default `*.workers.dev` hostname first. A custom domain is optional and can be added later from the user project's Cloudflare setup.
 

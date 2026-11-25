@@ -91,17 +91,32 @@ export interface SiteSearchConfig {
 
 export interface SiteAssetsConfig {
   /**
-   * Absolute http(s) base URL of an external asset origin, e.g. an R2 custom
-   * domain or a CDN in front of the same bucket. Requires external binary
-   * mode: rendered references to R2-backed binary assets are rewritten to
-   * `${baseUrl}<same path>`, while the Worker route keeps serving the same
-   * paths as a fallback for crawlers and old links.
+   * Absolute http(s) base URL of an external asset origin. Requires external
+   * binary mode: rendered references to external binary assets are rewritten
+   * to this origin, while the Worker route keeps serving the same paths as a
+   * fallback for crawlers and old links.
    */
   baseUrl?: string;
+  /**
+   * URL shape used on the external origin. Defaults to 'path'.
+   *
+   * - 'path': the origin mirrors the site's public path structure, such as a
+   *   custom domain bound to the same Worker or a CDN in front of the site.
+   *   Every external binary entry is rewritten to `${baseUrl}<same path>`.
+   * - 'key': the origin serves the R2 bucket by object key, such as an R2
+   *   custom domain bound to the same bucket. R2-backed entries are
+   *   rewritten to `${baseUrl}/binary/<sha256><ext>` from their content-hash
+   *   storage key; Workers-assets-staged entries stay on the site origin.
+   */
+  addressing?: SiteAssetAddressing;
 }
+
+/** How rewritten asset URLs are addressed on the external origin. */
+export type SiteAssetAddressing = 'path' | 'key';
 
 export interface ResolvedSiteAssetsConfig {
   baseUrl: string;
+  addressing: SiteAssetAddressing;
 }
 
 export interface SiteConfig {
@@ -422,7 +437,23 @@ function resolveAssetsConfig(
     throw new Error(`Invalid "assets" in ${configFilePath}: expected an object`);
   }
 
+  if (value.addressing !== undefined) {
+    if (
+      typeof value.addressing !== 'string' ||
+      (value.addressing !== 'path' && value.addressing !== 'key')
+    ) {
+      throw new Error(
+        `Invalid "assets.addressing" in ${configFilePath}: expected 'path' or 'key'`,
+      );
+    }
+  }
+
   if (value.baseUrl === undefined) {
+    if (value.addressing !== undefined) {
+      throw new Error(
+        `Invalid "assets.addressing" in ${configFilePath}: requires "assets.baseUrl"`,
+      );
+    }
     return undefined;
   }
 
@@ -433,7 +464,10 @@ function resolveAssetsConfig(
   }
 
   try {
-    return { baseUrl: normalizeAssetBaseUrl(value.baseUrl) };
+    return {
+      baseUrl: normalizeAssetBaseUrl(value.baseUrl),
+      addressing: value.addressing ?? 'path',
+    };
   } catch (error) {
     throw new Error(
       `Invalid "assets.baseUrl" in ${configFilePath}: ${

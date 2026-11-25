@@ -243,22 +243,24 @@ Example:
 
 ## External Asset Origin
 
-`assets.baseUrl` points rendered binary asset references at a second origin that mirrors the site's public paths, such as a custom domain bound to the same deployed Worker or a CDN whose origin is the site:
+`assets.baseUrl` points rendered binary asset references at a second origin. `assets.addressing` selects how rewritten URLs are formed on that origin:
 
 ```json
 {
   "siteUrl": "https://example.com",
   "assets": {
-    "baseUrl": "https://img.example.com"
+    "baseUrl": "https://img.example.com",
+    "addressing": "path"
   }
 }
 ```
 
-- Requires `mdorigin build cloudflare --binary-mode external`; only assets staged in the R2 bucket (above the `--assets-max-bytes` threshold, default 25 MB) are rewritten. Assets served from Workers static assets stay on the site origin and already carry the browser cache policy described in the Cloudflare guide.
-- A raw R2 custom domain is **not** a supported origin: binaries are staged in the bucket at content-hash keys (`binary/<sha256><ext>`), which an R2 domain serves by key rather than by public path, so rewritten URLs would 404. Key-addressed rewrite support is tracked in #38.
-- Markdown images, `video` / `audio` / `source` sources, and page `socialImage` (cover / `og:image` / `twitter:image`) that resolve to a known bucket asset are rewritten to `${baseUrl}<same path>`.
-- The public path structure is preserved, so existing links keep working and the Worker route remains a fallback for crawlers and old links.
-- `baseUrl` must be an absolute `http(s)` URL. The local dev server is unaffected.
+- `"addressing": "path"` (default): the origin must mirror the site's public path structure, such as a custom domain bound to the same deployed Worker or a CDN whose origin is the site. Every external binary asset is rewritten to `${baseUrl}<same path>`, including assets staged in the Workers static assets bundle.
+- `"addressing": "key"`: the origin must serve the R2 bucket by object key, such as an R2 custom domain bound to the same bucket. Binaries staged in the bucket (above the `--assets-max-bytes` threshold, default 25 MB) are rewritten to `${baseUrl}/binary/<sha256><ext>` from their content-hash storage key; those URLs are immutable, and uploads carry `Cache-Control: public, max-age=31536000, immutable` object metadata (stamped by `mdorigin sync cloudflare-r2`). Assets staged in the Workers static assets bundle stay on the site origin.
+- Requires `mdorigin build cloudflare --binary-mode external`.
+- Markdown images, `video` / `audio` / `source` sources, and page `socialImage` (cover / `og:image` / `twitter:image`) that resolve to a known external binary asset are rewritten according to the addressing mode.
+- The Worker route keeps serving the same public paths as a fallback for crawlers and old links.
+- `baseUrl` must be an absolute `http(s)` URL; `addressing` must be `'path'` or `'key'`. The local dev server is unaffected.
 
 See the [Cloudflare guide](../guides/cloudflare.md) for the supported origin forms and bucket staging requirements.
 

@@ -101,7 +101,11 @@ export interface SyncCloudflareR2Result {
 
 interface CloudflareR2SyncState {
   version: 1;
-  uploaded: Record<string, { syncedAt: string }>;
+  /**
+   * Objects uploaded by older versions record no cache-control policy, so a
+   * missing value re-syncs once to refresh object metadata.
+   */
+  uploaded: Record<string, { syncedAt: string; cacheControl?: string }>;
 }
 
 interface CloudflareBundleMetadataV1 {
@@ -128,6 +132,14 @@ const DEFAULT_R2_BINDING = 'MDORIGIN_R2';
 const BUNDLE_FILE_NAME = 'bundle.json';
 const R2_STATE_FILE_NAME = 'r2-sync-state.json';
 const SEARCH_ASSETS_PREFIX = '__mdorigin/search';
+/**
+ * Cache policy stamped on R2 uploads of content-hash-staged binaries. Their
+ * keys are derived from the file content, so an object under a given key
+ * never changes and direct R2 custom domain responses (`assets.addressing:
+ * 'key'`) can be cached as immutable. The Worker-served fallback sets its
+ * own response headers and is unaffected by object metadata.
+ */
+const R2_BINARY_OBJECT_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 export async function buildCloudflareManifest(
   options: BuildCloudflareManifestOptions,
@@ -374,13 +386,19 @@ export async function syncCloudflareR2(
 
   for (const object of r2Objects) {
     const stateKey = `${options.bucketName}:${object.storageKey}`;
-    if (!options.force && state.uploaded[stateKey]) {
+    const cacheControl = r2ObjectCacheControl(object);
+    const stateEntry = state.uploaded[stateKey];
+    if (
+      !options.force &&
+      stateEntry !== undefined &&
+      stateEntry.cacheControl === cacheControl
+    ) {
       skippedCount += 1;
       continue;
     }
 
     const filePath = path.join(outDir, object.file);
-    const result = runCommand('wrangler', [
+    const args = [
       'r2',
       'object',
       'put',
@@ -390,13 +408,18 @@ export async function syncCloudflareR2(
       '--content-type',
       object.mediaType,
       '--remote',
-    ]);
+    ];
+    if (cacheControl !== undefined) {
+      args.push('--cache-control', cacheControl);
+    }
+    const result = runCommand('wrangler', args);
     if (result.status !== 0) {
       throw new Error(result.stderr || `Failed to upload R2 object ${object.storageKey}.`);
     }
 
     state.uploaded[stateKey] = {
       syncedAt: new Date().toISOString(),
+      cacheControl,
     };
     uploadedCount += 1;
   }
@@ -631,6 +654,18 @@ async function readR2SyncState(stateFile: string): Promise<CloudflareR2SyncState
   }
 
   return JSON.parse(await readFile(stateFile, 'utf8')) as CloudflareR2SyncState;
+}
+
+/**
+ * Object-level cache policy for an R2 upload. Only binaries are stamped:
+ * their content-hash keys are immutable, and they are the objects an R2
+ * custom domain can serve directly. Search bundle objects are served through
+ * the Worker binding, which sets its own response headers.
+ */
+function r2ObjectCacheControl(
+  object: CloudflareBundleMetadata['stagedObjects'][number],
+): string | undefined {
+  return object.kind === 'binary' ? R2_BINARY_OBJECT_CACHE_CONTROL : undefined;
 }
 
 async function buildR2StorageKey(

@@ -475,7 +475,7 @@ test('cloudflare worker streams r2-backed binaries without buffering into conten
   );
 });
 
-test('cloudflare worker rewrites r2-backed asset references to the configured asset origin', async () => {
+test('cloudflare worker rewrites every external binary asset reference to the configured asset origin', async () => {
   const worker = createCloudflareWorker({
     siteConfig: {
       siteTitle: 'Worker Test',
@@ -494,7 +494,7 @@ test('cloudflare worker rewrites r2-backed asset references to the configured as
       listingLoadMoreStep: 10,
       siteTitleConfigured: true,
       siteDescriptionConfigured: false,
-      assets: { baseUrl: 'https://img.example.com' },
+      assets: { baseUrl: 'https://img.example.com', addressing: 'path' },
     },
     entries: [
       {
@@ -547,8 +547,9 @@ test('cloudflare worker rewrites r2-backed asset references to the configured as
       'property="og:image" content="https://img.example.com/mcp-events/cover.webp"',
     ),
   );
-  // assets-staged binaries are not in the R2 bucket, so they stay on the Worker origin.
-  assert.ok(body.includes('src="./inline.webp"'));
+  // Path addressing rewrites assets-staged binaries too: the origin mirrors
+  // the site's public path structure.
+  assert.ok(body.includes('src="https://img.example.com/mcp-events/inline.webp"'));
 
   // The Worker route keeps serving the asset as a fallback.
   const binaryResponse = await worker.fetch(
@@ -565,6 +566,86 @@ test('cloudflare worker rewrites r2-backed asset references to the configured as
 
   assert.equal(binaryResponse.status, 200);
   assert.equal(binaryResponse.headers.get('cache-control'), 'public, max-age=86400, stale-while-revalidate=604800');
+});
+
+test('cloudflare worker rewrites r2-backed asset references to storage keys in key addressing mode', async () => {
+  const worker = createCloudflareWorker({
+    siteConfig: {
+      siteTitle: 'Worker Test',
+      siteUrl: 'https://example.com',
+      favicon: undefined,
+      logo: undefined,
+      showDate: true,
+      showSummary: true,
+      topNav: [],
+      footerNav: [],
+      footerText: undefined,
+      socialLinks: [],
+      editLink: undefined,
+      showHomeIndex: true,
+      listingInitialPostCount: 10,
+      listingLoadMoreStep: 10,
+      siteTitleConfigured: true,
+      siteDescriptionConfigured: false,
+      assets: { baseUrl: 'https://assets.example.com', addressing: 'key' },
+    },
+    entries: [
+      {
+        path: 'mcp-events/index.md',
+        kind: 'text',
+        mediaType: 'text/markdown; charset=utf-8',
+        text: [
+          '---',
+          'title: Events',
+          'socialImage: ./cover.webp',
+          '---',
+          '',
+          '# Events',
+          '',
+          '![Cover](./cover.webp)',
+          '',
+          '![Inline](./inline.webp)',
+        ].join('\n'),
+      },
+      {
+        path: 'mcp-events/cover.webp',
+        kind: 'binary',
+        mediaType: 'image/webp',
+        storageKind: 'r2',
+        storageKey: 'binary/5d41402abc4b2a76b9719d911017c592.webp',
+        byteSize: 4,
+      },
+      {
+        path: 'mcp-events/inline.webp',
+        kind: 'binary',
+        mediaType: 'image/webp',
+        storageKind: 'assets',
+        storageKey: 'mcp-events/inline.webp',
+        byteSize: 2,
+      },
+    ],
+    runtime: {
+      binaryMode: 'external',
+      r2Binding: 'MDORIGIN_R2',
+    },
+  });
+
+  const response = await worker.fetch(new Request('https://example.com/mcp-events/'));
+
+  assert.equal(response.status, 200);
+  const body = String(await response.text());
+  assert.ok(
+    body.includes(
+      'src="https://assets.example.com/binary/5d41402abc4b2a76b9719d911017c592.webp"',
+    ),
+  );
+  assert.ok(
+    body.includes(
+      'property="og:image" content="https://assets.example.com/binary/5d41402abc4b2a76b9719d911017c592.webp"',
+    ),
+  );
+  // assets-staged binaries are not in the R2 bucket, so they stay on the Worker origin.
+  assert.ok(body.includes('src="./inline.webp"'));
 });
 
 test('cloudflare worker serves /api/search from assets-backed external search bundle', async () => {
