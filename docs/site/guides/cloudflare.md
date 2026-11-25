@@ -74,7 +74,7 @@ If `--name` is omitted, `mdorigin` derives the Worker name from the site title.
 
 ## Serve assets from a custom origin
 
-With external binary mode you can front the R2 bucket with a custom domain (an R2 custom domain or your own CDN) and let rendered pages reference that origin directly:
+With external binary mode you can point rendered asset references at a second origin that mirrors the site's public paths, for example a custom domain bound to the same deployed Worker or a CDN whose origin is the site:
 
 ```json
 {
@@ -87,6 +87,10 @@ With external binary mode you can front the R2 bucket with a custom domain (an R
 
 Rules:
 
+- the origin must serve the site's public path structure. A raw R2 custom
+  domain does **not** work: binaries are staged in the bucket at
+  content-hash keys (`binary/<sha256><ext>`), which an R2 domain serves by
+  key, not by public path; key-addressed rewrite support is tracked in #38
 - only assets actually staged in the R2 bucket are rewritten, so binaries at
   or below the Workers-assets size threshold keep the site origin (the asset
   CDN serves them with the browser cache policy below, so offloading them is

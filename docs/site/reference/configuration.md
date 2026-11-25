@@ -243,7 +243,7 @@ Example:
 
 ## External Asset Origin
 
-`assets.baseUrl` points rendered binary asset references at a separate origin, such as an R2 custom domain or a CDN in front of the same bucket:
+`assets.baseUrl` points rendered binary asset references at a second origin that mirrors the site's public paths, such as a custom domain bound to the same deployed Worker or a CDN whose origin is the site:
 
 ```json
 {
@@ -255,11 +255,12 @@ Example:
 ```
 
 - Requires `mdorigin build cloudflare --binary-mode external`; only assets staged in the R2 bucket (above the `--assets-max-bytes` threshold, default 25 MB) are rewritten. Assets served from Workers static assets stay on the site origin and already carry the browser cache policy described in the Cloudflare guide.
+- A raw R2 custom domain is **not** a supported origin: binaries are staged in the bucket at content-hash keys (`binary/<sha256><ext>`), which an R2 domain serves by key rather than by public path, so rewritten URLs would 404. Key-addressed rewrite support is tracked in #38.
 - Markdown images, `video` / `audio` / `source` sources, and page `socialImage` (cover / `og:image` / `twitter:image`) that resolve to a known bucket asset are rewritten to `${baseUrl}<same path>`.
 - The public path structure is preserved, so existing links keep working and the Worker route remains a fallback for crawlers and old links.
 - `baseUrl` must be an absolute `http(s)` URL. The local dev server is unaffected.
 
-See the [Cloudflare guide](../guides/cloudflare.md) for the bucket staging requirements.
+See the [Cloudflare guide](../guides/cloudflare.md) for the supported origin forms and bucket staging requirements.
 
 ## RSS
 

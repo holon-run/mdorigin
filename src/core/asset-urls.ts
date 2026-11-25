@@ -1,11 +1,17 @@
 /**
  * External asset origin support.
  *
- * Sites deployed with external binary mode can mirror their R2 bucket on a
- * custom origin (R2 custom domain or CDN). When `assets.baseUrl` is
- * configured, rendered asset references are rewritten to that origin while
- * keeping the same public path structure, so the Worker route keeps working
- * as a fallback for crawlers and old links.
+ * Sites deployed with external binary mode can serve rendered asset
+ * references from a second origin that mirrors the site's public path
+ * structure, such as a custom domain bound to the same Worker or a CDN in
+ * front of the site. When `assets.baseUrl` is configured, rendered asset
+ * references are rewritten to that origin while keeping the same public
+ * path structure, so the Worker route keeps working as a fallback for
+ * crawlers and old links.
+ *
+ * A raw R2 custom domain is not a compatible origin: external binary mode
+ * stages bucket objects at content-hash keys (binary/<sha256><ext>), which
+ * an R2 domain serves by key rather than by public path (see #38).
  */
 
 /**
