@@ -285,6 +285,14 @@ test('cloudflare worker serves assets-backed binaries through ASSETS binding', a
         storageKey: 'images/cat.png',
         byteSize: 3,
       },
+      {
+        path: 'images/missing.png',
+        kind: 'binary',
+        mediaType: 'image/png',
+        storageKind: 'assets',
+        storageKey: 'images/missing.png',
+        byteSize: 3,
+      },
     ],
   });
 
@@ -295,8 +303,14 @@ test('cloudflare worker serves assets-backed binaries through ASSETS binding', a
       ASSETS: {
         fetch: async (request) => {
           fetchedRequest = request;
+          // Mimics Workers Assets defaults for a plain GET: browsers must
+          // revalidate every visit, with an etag to revalidate against.
           return new Response(Uint8Array.from([1, 2, 3]), {
-            headers: { 'content-type': 'image/png' },
+            headers: {
+              'content-type': 'image/png',
+              'cache-control': 'public, max-age=0, must-revalidate',
+              etag: '"cat-etag"',
+            },
           });
         },
       },
@@ -305,10 +319,33 @@ test('cloudflare worker serves assets-backed binaries through ASSETS binding', a
 
   assert.equal(response.status, 200);
   assert.equal(fetchedRequest?.url, 'https://example.com/images/cat.png');
+  assert.equal(
+    response.headers.get('cache-control'),
+    'public, max-age=86400, stale-while-revalidate=604800',
+  );
+  assert.equal(response.headers.get('etag'), '"cat-etag"');
+  assert.equal(response.headers.get('content-type'), 'image/png');
   assert.deepEqual(
     Array.from(new Uint8Array(await response.arrayBuffer())),
     [1, 2, 3],
   );
+
+  // Binding error responses (for example a missing asset file) pass through
+  // untouched instead of getting the binary cache policy.
+  const missingResponse = await worker.fetch(
+    new Request('https://example.com/images/missing.png'),
+    {
+      ASSETS: {
+        fetch: async () =>
+          new Response('Not Found', {
+            status: 404,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          }),
+      },
+    },
+  );
+  assert.equal(missingResponse.status, 404);
+  assert.equal(missingResponse.headers.get('cache-control'), null);
 });
 
 test('cloudflare worker serves r2-backed binaries through configured bucket binding', async () => {

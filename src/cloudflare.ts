@@ -19,7 +19,10 @@ import type {
   CloudflareManifestEntry,
   ExternalBinaryCloudflareManifestEntry,
 } from './adapters/cloudflare.js';
-import { createCloudflareWorker } from './adapters/cloudflare.js';
+import {
+  createCloudflareWorker,
+  EXTERNAL_BINARY_BROWSER_CACHE_CONTROL,
+} from './adapters/cloudflare.js';
 import {
   getMediaTypeForPath,
   isIgnoredContentName,
@@ -457,6 +460,7 @@ async function writeExternalStaging(
   >();
   let hasAssets = false;
   let hasR2 = false;
+  let hasAssetsBinaries = false;
   if (options.binaryMode === 'external') {
     for (const entry of manifest.entries) {
       if (entry.kind !== 'binary' || !('storageKind' in entry)) {
@@ -469,6 +473,7 @@ async function writeExternalStaging(
         await mkdir(path.dirname(targetFile), { recursive: true });
         await copyFile(sourceFile, targetFile);
         hasAssets = true;
+        hasAssetsBinaries = true;
         stagedObjects.set(`assets:${entry.storageKey}`, {
           kind: 'binary',
           path: entry.path,
@@ -537,6 +542,22 @@ async function writeExternalStaging(
         });
       }
     }
+  }
+
+  if (hasAssetsBinaries) {
+    // Binaries staged in the static assets bundle are served by the assets
+    // layer without invoking the Worker when `run_worker_first` is false
+    // (the generated wrangler config), so the browser cache policy has to
+    // ride along in the assets `_headers` file. A single `/*` rule stays
+    // well within Cloudflare's 100-rule limit and the assets directory only
+    // holds mdorigin-staged binaries plus internal search bundle files. The
+    // Worker adapter applies the same policy to binding-served fallbacks, so
+    // keep both in sync.
+    await writeFile(
+      path.join(assetsDir, '_headers'),
+      `/*\n\tCache-Control: ${EXTERNAL_BINARY_BROWSER_CACHE_CONTROL}\n`,
+      'utf8',
+    );
   }
 
   return {

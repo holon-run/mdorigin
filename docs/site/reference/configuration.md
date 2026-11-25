@@ -254,7 +254,7 @@ Example:
 }
 ```
 
-- Requires `mdorigin build cloudflare --binary-mode external`; only assets staged in the R2 bucket are rewritten. Assets served from Workers static assets stay on the site origin.
+- Requires `mdorigin build cloudflare --binary-mode external`; only assets staged in the R2 bucket (above the `--assets-max-bytes` threshold, default 25 MB) are rewritten. Assets served from Workers static assets stay on the site origin and already carry the browser cache policy described in the Cloudflare guide.
 - Markdown images, `video` / `audio` / `source` sources, and page `socialImage` (cover / `og:image` / `twitter:image`) that resolve to a known bucket asset are rewritten to `${baseUrl}<same path>`.
 - The public path structure is preserved, so existing links keep working and the Worker route remains a fallback for crawlers and old links.
 - `baseUrl` must be an absolute `http(s)` URL. The local dev server is unaffected.

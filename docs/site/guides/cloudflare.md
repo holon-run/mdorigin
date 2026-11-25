@@ -88,8 +88,9 @@ With external binary mode you can front the R2 bucket with a custom domain (an R
 Rules:
 
 - only assets actually staged in the R2 bucket are rewritten, so binaries at
-  or below the Workers-assets size threshold keep the site origin; use
-  `--assets-max-bytes 0` to stage every binary in R2
+  or below the Workers-assets size threshold keep the site origin (the asset
+  CDN serves them with the browser cache policy below, so offloading them is
+  usually unnecessary); use `--assets-max-bytes 0` to stage every binary in R2
 - markdown images, `video` / `audio` / `source` sources, and page
   `socialImage` metadata resolve to `${baseUrl}<same path>`, so existing
   paths and links keep working
@@ -114,7 +115,8 @@ Deployed sites are cached at several layers so repeated traffic does not re-rend
 
 - **Static assets** — generated Wrangler config serves assets directly from the Cloudflare asset CDN before the Worker runs.
 - **Browser and edge caches** — rendered responses carry a deploy-versioned `ETag`, `Cache-Control: public, max-age=120, stale-while-revalidate=604800` for browsers, and `CDN-Cache-Control: max-age=86400` for the Cloudflare edge on non-negotiated routes. Conditional requests with a matching `If-None-Match` receive `304` without rendering.
-- **R2-backed binary assets** — external binary mode serves bucket assets with `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` for browsers and `CDN-Cache-Control: max-age=86400` for the edge, plus the R2 `ETag`, so repeat visits no longer revalidate every image. Assets served from Workers static assets use Cloudflare's asset caching instead.
+- **R2-backed binary assets** — external binary mode serves bucket assets through the Worker with `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` for browsers, `CDN-Cache-Control: max-age=86400`, and the R2 `ETag`, so repeat visits no longer revalidate every image. Worker responses are not put into the Cloudflare edge cache (`cf-cache-status` is absent); the CDN directive is advisory for any cache rule that acts on it.
+- **Assets-bundle binary assets** — binaries at or below the `--assets-max-bytes` threshold (default 25 MB) are staged in the Workers static assets bundle and served by the asset CDN before the Worker runs. mdorigin generates an assets `_headers` rule so these responses carry the same browser policy (`public, max-age=86400, stale-while-revalidate=604800`) plus the asset `ETag`, while the asset CDN keeps its own edge cache (`cf-cache-status`, invalidated on every deploy). The Worker fallback route applies the same browser policy.
 - **Worker-internal caches** — within one isolate, rendered responses are memoized (default 100 entries), and each colo additionally uses the Cloudflare Cache API. Cache keys include the deploy version and the `html`/`md` representation, so Accept-negotiated routes never cross-contaminate and every cache entry is invalidated automatically on the next deploy.
 - **Search** — `/api/search` results are memoized per isolate because the search index is static within a deploy.
 

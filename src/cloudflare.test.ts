@@ -296,6 +296,45 @@ test('writeCloudflareBundle writes staging metadata for external binaries', asyn
   );
   await stat(path.join(outDir, 'assets', 'small.png'));
   await stat(path.join(outDir, bundleMetadata.stagedObjects[0]!.file));
+
+  // Asset-staged binaries are served by the static assets layer without
+  // invoking the Worker, so the browser cache policy rides along in an
+  // assets `_headers` file.
+  const headersSource = await readFile(
+    path.join(outDir, 'assets', '_headers'),
+    'utf8',
+  );
+  assert.equal(
+    headersSource,
+    '/*\n\tCache-Control: public, max-age=86400, stale-while-revalidate=604800\n',
+  );
+});
+
+test('writeCloudflareBundle omits _headers when only search files are asset-staged', async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-cf-headers-search-root-'));
+  const outDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-cf-headers-search-out-'));
+  const searchDir = await mkdtemp(path.join(tmpdir(), 'mdorigin-cf-headers-search-dir-'));
+  await writeFile(path.join(rootDir, 'index.md'), '# Home\n', 'utf8');
+  await writeFile(path.join(rootDir, 'large.mp4'), 'a'.repeat(50));
+  await writeFile(
+    path.join(searchDir, 'manifest.json'),
+    '{"artifactFormat":"file-bundle-v1"}\n',
+    'utf8',
+  );
+
+  await writeCloudflareBundle({
+    rootDir,
+    outDir,
+    searchDir,
+    siteConfig: TEST_SITE_CONFIG,
+    binaryMode: 'external',
+    assetsMaxBytes: 40,
+  });
+
+  // The search bundle file is small enough for asset staging, so the assets
+  // directory exists, but no browser-facing binary lives in it.
+  await stat(path.join(outDir, 'assets', '__mdorigin/search/manifest.json'));
+  await assert.rejects(stat(path.join(outDir, 'assets', '_headers')));
 });
 
 test('writeCloudflareBundle externalizes search bundle files instead of embedding them', async () => {

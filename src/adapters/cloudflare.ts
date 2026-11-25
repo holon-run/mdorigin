@@ -127,15 +127,17 @@ const CDN_CACHE_CONTROL = 'max-age=86400';
 const L2_CACHE_CONTROL = 'public, max-age=86400';
 const L2_CACHE_KEY_ORIGIN = 'https://cache.mdorigin.internal';
 /**
- * Browser cache policy for R2-backed binary assets in external binary mode.
- * Public paths stay stable while the underlying object can change on a
- * redeploy, so responses must stay revalidatable (no immutable): browsers
- * reuse images for a day, then revalidate in the background while stale
- * content keeps rendering. Without this header browsers fall back to
- * Cloudflare's default max-age=0 must-revalidate and pay one conditional
- * round trip per image on every visit.
+ * Browser cache policy for external binary assets, regardless of whether
+ * they are R2-backed or staged in the static assets bundle. Public paths
+ * stay stable while the underlying object can change on a redeploy, so
+ * responses must stay revalidatable (no immutable): browsers reuse images
+ * for a day, then revalidate in the background while stale content keeps
+ * rendering. Without this header browsers fall back to Cloudflare's default
+ * max-age=0 must-revalidate and pay one conditional round trip per image on
+ * every visit. The build step mirrors this value into the generated assets
+ * `_headers` file, so keep the two in sync.
  */
-const EXTERNAL_BINARY_BROWSER_CACHE_CONTROL =
+export const EXTERNAL_BINARY_BROWSER_CACHE_CONTROL =
   'public, max-age=86400, stale-while-revalidate=604800';
 /**
  * Edge cache policy for R2-backed binary assets. Mirrors the HTML CDN policy
@@ -767,7 +769,10 @@ async function tryServeExternalBinary(
 
     const assetUrl = new URL(request.url);
     assetUrl.pathname = `/${manifestEntry.storageKey}`;
-    return assetsBinding.fetch(new Request(assetUrl.toString(), request));
+    const assetResponse = await assetsBinding.fetch(
+      new Request(assetUrl.toString(), request),
+    );
+    return withExternalBinaryBrowserCacheControl(assetResponse);
   }
 
   const bucket = env?.[
@@ -830,6 +835,30 @@ async function tryServeExternalBinary(
 
   return new Response(null, {
     status: 200,
+    headers,
+  });
+}
+
+/**
+ * Applies the external-binary browser cache policy to a Workers Assets
+ * binding response. Requests that match a static asset are normally served
+ * by the assets layer without invoking the Worker, so the build step also
+ * emits an assets `_headers` rule with this policy; this override keeps
+ * Worker-served fallbacks (for example sites running `run_worker_first:
+ * true`) consistent with that rule. Only the browser directive is
+ * overridden: the assets layer owns its edge cache (`cf-cache-status`) and
+ * already resolved this response, so no CDN directive is added here. Error
+ * responses pass through untouched.
+ */
+function withExternalBinaryBrowserCacheControl(response: Response): Response {
+  if (response.status !== 200 && response.status !== 304) {
+    return response;
+  }
+
+  const headers = new Headers(response.headers);
+  headers.set('cache-control', EXTERNAL_BINARY_BROWSER_CACHE_CONTROL);
+  return new Response(response.body, {
+    status: response.status,
     headers,
   });
 }
